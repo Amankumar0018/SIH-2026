@@ -24,6 +24,13 @@ class StubApiService implements ApiService {
 
   String? lastEndpoint;
   Map<String, dynamic>? lastBody;
+  String? authToken;
+
+  @override
+  void setAuthToken(String? token) {
+    authToken = token;
+  }
+
 
   @override
   Future<AppResult<Map<String, dynamic>>> get(

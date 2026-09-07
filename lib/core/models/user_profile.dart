@@ -2,6 +2,8 @@
 class UserProfile {
   final String name;
   final String mobileNumber;
+  final String role;
+  final String? token;
   final String? email;
   final int? age;
   final String emergencyContactName;
@@ -13,6 +15,8 @@ class UserProfile {
   const UserProfile({
     required this.name,
     required this.mobileNumber,
+    this.role = 'citizen',
+    this.token,
     this.email,
     this.age,
     required this.emergencyContactName,
@@ -22,9 +26,23 @@ class UserProfile {
     this.medications,
   });
 
+  /// Check if user has responder capabilities (either primary responder or dual role)
+  bool get isResponder {
+    final r = role.toLowerCase();
+    return r == 'responder' || r == 'dual' || r.contains('responder');
+  }
+
+  /// Check if user has dual capabilities (both citizen & responder)
+  bool get isDual => role.toLowerCase() == 'dual';
+
+  /// All authenticated users have citizen emergency capabilities
+  bool get isCitizen => true;
+
   UserProfile copyWith({
     String? name,
     String? mobileNumber,
+    String? role,
+    String? token,
     String? email,
     int? age,
     String? emergencyContactName,
@@ -36,6 +54,8 @@ class UserProfile {
     return UserProfile(
       name: name ?? this.name,
       mobileNumber: mobileNumber ?? this.mobileNumber,
+      role: role ?? this.role,
+      token: token ?? this.token,
       email: email ?? this.email,
       age: age ?? this.age,
       emergencyContactName: emergencyContactName ?? this.emergencyContactName,
@@ -50,6 +70,8 @@ class UserProfile {
     return {
       'name': name,
       'mobileNumber': mobileNumber,
+      'role': role,
+      'token': token,
       'email': email,
       'age': age,
       'emergencyContactName': emergencyContactName,
@@ -64,6 +86,8 @@ class UserProfile {
     return UserProfile(
       name: json['name'] as String? ?? '',
       mobileNumber: json['mobileNumber'] as String? ?? '',
+      role: json['role'] as String? ?? 'citizen',
+      token: json['token'] as String?,
       email: json['email'] as String?,
       age: json['age'] as int?,
       emergencyContactName: json['emergencyContactName'] as String? ?? '',

@@ -121,6 +121,7 @@ void main() {
 
     expect(find.text('No Active Emergencies'), findsOneWidget);
     expect(find.text('Responder Dashboard'), findsOneWidget);
+    expect(find.text('Return to Citizen Home'), findsOneWidget);
   });
 
   testWidgets('ResponderDashboardScreen displays active incident cards', (WidgetTester tester) async {
@@ -198,5 +199,6 @@ void main() {
 
     expect(mockService.incidents.first.status, equals(EmergencyStatus.resolved));
     expect(find.text('No Active Emergencies'), findsOneWidget);
+    expect(find.text('Return to Citizen Home'), findsOneWidget);
   });
 }

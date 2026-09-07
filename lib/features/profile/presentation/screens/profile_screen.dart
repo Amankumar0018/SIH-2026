@@ -158,7 +158,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                // User Avatar Header
+                // User Avatar & Role Header
                 Center(
                   child: Column(
                     children: [
@@ -176,6 +176,34 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       Text(
                         _profile!.mobileNumber,
                         style: theme.textTheme.bodyMedium,
+                      ),
+                      const SizedBox(height: AppDimensions.spaceXs),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: _profile!.isDual
+                              ? AppColors.primary.withValues(alpha: 0.15)
+                              : _profile!.isResponder
+                                  ? AppColors.warning.withValues(alpha: 0.15)
+                                  : AppColors.secondary.withValues(alpha: 0.15),
+                          borderRadius: BorderRadius.circular(16),
+                        ),
+                        child: Text(
+                          _profile!.isDual
+                              ? 'Dual Role (Citizen + Responder)'
+                              : _profile!.isResponder
+                                  ? 'Emergency Responder'
+                                  : 'Citizen',
+                          style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.bold,
+                            color: _profile!.isDual
+                                ? AppColors.primary
+                                : _profile!.isResponder
+                                    ? AppColors.warning
+                                    : AppColors.secondary,
+                          ),
+                        ),
                       ),
                     ],
                   ),
@@ -257,7 +285,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                         subtitle: Text('Primary: ${_profile!.emergencyContactName}'),
                         trailing: const Icon(Icons.chevron_right),
                         onTap: () => Navigator.pushNamed(context, AppRoutes.emergencyContacts).then((_) {
-                          _loadProfileData(); // Reload updated contact name
+                          _loadProfileData();
                         }),
                       ),
                       const Divider(height: 1),
@@ -267,7 +295,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                         subtitle: Text('Blood type: ${_profile!.bloodGroup ?? "Not set"}'),
                         trailing: const Icon(Icons.chevron_right),
                         onTap: () => Navigator.pushNamed(context, AppRoutes.medicalId).then((_) {
-                          _loadProfileData(); // Reload updated blood type
+                          _loadProfileData();
                         }),
                       ),
                     ],

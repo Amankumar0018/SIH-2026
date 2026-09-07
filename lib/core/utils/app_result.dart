@@ -11,6 +11,8 @@ class AppResult<T> {
     required this.isSuccess,
   });
 
+  bool get isFailure => !isSuccess;
+
   factory AppResult.success(T data) {
     return AppResult._(data: data, isSuccess: true);
   }
@@ -19,3 +21,4 @@ class AppResult<T> {
     return AppResult._(errorMessage: errorMessage, isSuccess: false);
   }
 }
+

@@ -16,6 +16,9 @@ class ServiceLocator {
 
   static final ServiceLocator instance = ServiceLocator._();
 
+  /// Whether the app is running against the real FastAPI backend.
+  bool useBackendApi = false;
+
   late ApiService apiService;
   late StorageService storageService;
   late LocationService locationService;
@@ -37,13 +40,16 @@ class ServiceLocator {
     bool? useBackendApi,
   }) {
     final bool backendFlag = useBackendApi ?? AppConfig.useBackendApi;
+    this.useBackendApi = backendFlag;
 
     apiService = customApiService ?? (backendFlag ? HttpApiService() : MockApiService());
     storageService = customStorageService ?? InMemoryStorageService();
     locationService = customLocationService ?? GeolocatorLocationService();
 
     notificationService = customNotificationService ?? MockNotificationService();
-    authService = customAuthService ?? MockAuthService(storageService);
+    authService = customAuthService ??
+        (backendFlag ? ApiAuthService(apiService, storageService) : MockAuthService(storageService));
+
 
     if (customEmergencyRepository != null) {
       emergencyRepository = customEmergencyRepository;

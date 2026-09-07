@@ -71,6 +71,53 @@ class CancelIncidentSchema(BaseModel):
     reason: Optional[str] = "User requested cancellation"
 
 
+class UserRoleEnum(str, Enum):
+    citizen = "citizen"
+    responder = "responder"
+    dual = "dual"
+
+
+class UserRegisterSchema(BaseModel):
+    mobileNumber: str
+    password: str
+    name: str
+    role: str = "citizen"
+    email: Optional[str] = None
+    emergencyContactName: Optional[str] = ""
+    emergencyContactPhone: Optional[str] = ""
+    bloodGroup: Optional[str] = None
+    allergies: Optional[str] = None
+    medications: Optional[str] = None
+
+
+class UserLoginSchema(BaseModel):
+    mobileNumber: str
+    password: str
+
+
+class TokenResponseSchema(BaseModel):
+    accessToken: str
+    tokenType: str = "bearer"
+    role: str
+    mobileNumber: str
+    name: str
+
+
+class UserModel(BaseModel):
+    id: str
+    mobileNumber: str
+    passwordHash: str
+    salt: str
+    role: str = "citizen"
+    name: str
+    email: Optional[str] = None
+    emergencyContactName: Optional[str] = ""
+    emergencyContactPhone: Optional[str] = ""
+    bloodGroup: Optional[str] = None
+    allergies: Optional[str] = None
+    medications: Optional[str] = None
+
+
 class AssignResponderSchema(BaseModel):
     responderId: str
     responderName: str

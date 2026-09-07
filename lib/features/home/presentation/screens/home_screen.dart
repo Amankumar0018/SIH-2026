@@ -4,6 +4,7 @@ import '../../../../core/constants/app_colors.dart';
 import '../../../../core/constants/app_dimensions.dart';
 import '../../../../core/constants/app_strings.dart';
 import '../../../../core/models/emergency_enums.dart';
+import '../../../../core/models/user_profile.dart';
 import '../../../../core/routing/app_routes.dart';
 import '../../../../core/services/service_locator.dart';
 import '../../../../shared/widgets/app_card.dart';
@@ -29,16 +30,29 @@ class _HomeScreenState extends State<HomeScreen> {
   String? _coordinates;
   bool _locationEnabled = false;
 
+  // User profile & capabilities
+  UserProfile? _currentUser;
+
   @override
   void initState() {
     super.initState();
     _fetchLocation();
+    _loadCurrentUser();
   }
 
   @override
   void dispose() {
     _sosTimer?.cancel();
     super.dispose();
+  }
+
+  Future<void> _loadCurrentUser() async {
+    final user = await ServiceLocator.instance.authService.getCurrentUser();
+    if (mounted) {
+      setState(() {
+        _currentUser = user;
+      });
+    }
   }
 
   void _fetchLocation() async {
@@ -123,10 +137,10 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final showResponderAccess = _currentUser == null || _currentUser!.isResponder;
 
     return Scaffold(
       appBar: AppBar(
@@ -145,19 +159,36 @@ class _HomeScreenState extends State<HomeScreen> {
           ],
         ),
         actions: [
-          IconButton(
-            icon: const Icon(Icons.badge_outlined),
-            tooltip: 'Responder Dashboard',
-            onPressed: () => Navigator.pushNamed(context, AppRoutes.responderDashboard).then((_) {
-              _fetchLocation();
-            }),
-          ),
+          if (showResponderAccess)
+            IconButton(
+              icon: const Icon(Icons.badge_outlined),
+              tooltip: 'Responder Dashboard',
+              onPressed: () async {
+                final messenger = ScaffoldMessenger.of(context);
+                final navigator = Navigator.of(context);
+                final authService = ServiceLocator.instance.authService;
+                final user = await authService.getCurrentUser();
+                if (user != null && !user.isResponder) {
+                  messenger.showSnackBar(
+                    const SnackBar(
+                      content: Text('Access Denied: Responder role required.'),
+                      backgroundColor: AppColors.primary,
+                    ),
+                  );
+                  return;
+                }
+                navigator.pushNamed(AppRoutes.responderDashboard).then((_) {
+                  _fetchLocation();
+                  _loadCurrentUser();
+                });
+              },
+            ),
           IconButton(
             icon: const Icon(Icons.account_circle_outlined),
             tooltip: 'Profile',
             onPressed: () => Navigator.pushNamed(context, AppRoutes.profile).then((_) {
-              // Refresh location or session settings if returned
               _fetchLocation();
+              _loadCurrentUser();
             }),
           ),
         ],
@@ -168,6 +199,46 @@ class _HomeScreenState extends State<HomeScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
+              // Dual / Responder Banner
+              if (_currentUser != null && _currentUser!.isResponder) ...[
+                AppCard(
+                  backgroundColor: theme.colorScheme.primaryContainer.withValues(alpha: 0.15),
+                  borderColor: theme.colorScheme.primary.withValues(alpha: 0.3),
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                  onTap: () {
+                    Navigator.pushNamed(context, AppRoutes.responderDashboard).then((_) {
+                      _fetchLocation();
+                      _loadCurrentUser();
+                    });
+                  },
+                  child: Row(
+                    children: [
+                      const Icon(Icons.badge_outlined, color: AppColors.primary, size: 20),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              _currentUser!.isDual
+                                  ? 'Dual Role Active (Citizen + Responder)'
+                                  : 'Responder Account Active',
+                              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+                            ),
+                            const Text(
+                              'Tap to open Responder Dashboard & view incident dispatches',
+                              style: TextStyle(fontSize: 11, color: Colors.grey),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const Icon(Icons.chevron_right, size: 18, color: AppColors.primary),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: AppDimensions.spaceSm),
+              ],
+
               // Location status banner
               _buildLocationBanner(theme),
               const SizedBox(height: AppDimensions.spaceMd),

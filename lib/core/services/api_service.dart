@@ -6,6 +6,8 @@ import '../utils/app_result.dart';
 
 /// Contract interface for Pukaar backend API communications.
 abstract class ApiService {
+  void setAuthToken(String? token);
+
   Future<AppResult<Map<String, dynamic>>> get(
     String endpoint, {
     Map<String, dynamic>? queryParameters,
@@ -28,6 +30,16 @@ abstract class ApiService {
 
 /// Initial placeholder / mock implementation of [ApiService].
 class MockApiService implements ApiService {
+  String? _authToken;
+
+  String? get authToken => _authToken;
+
+  @override
+  void setAuthToken(String? token) {
+    _authToken = token;
+  }
+
+
   @override
   Future<AppResult<Map<String, dynamic>>> get(
     String endpoint, {
@@ -63,12 +75,18 @@ class HttpApiService implements ApiService {
   final String baseUrl;
   final Duration timeout;
   final HttpClient _client = HttpClient();
+  String? _authToken;
 
   HttpApiService({
     String? baseUrl,
     Duration? timeout,
   })  : baseUrl = baseUrl ?? AppConfig.baseUrl,
         timeout = timeout ?? AppConfig.apiTimeout;
+
+  @override
+  void setAuthToken(String? token) {
+    _authToken = token;
+  }
 
   Uri _buildUri(String endpoint, [Map<String, dynamic>? queryParameters]) {
     final cleanBase = baseUrl.endsWith('/') ? baseUrl.substring(0, baseUrl.length - 1) : baseUrl;
@@ -96,6 +114,10 @@ class HttpApiService implements ApiService {
 
       request.headers.contentType = ContentType.json;
       request.headers.set('Accept', 'application/json');
+
+      if (_authToken != null && _authToken!.isNotEmpty) {
+        request.headers.set('Authorization', 'Bearer $_authToken');
+      }
 
       if (body != null) {
         final jsonString = json.encode(body);
@@ -163,3 +185,4 @@ class HttpApiService implements ApiService {
     return AppResult.success(result.isSuccess);
   }
 }
+

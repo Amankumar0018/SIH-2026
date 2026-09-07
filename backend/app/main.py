@@ -3,6 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.routes.health import router as health_router
 from app.routes.incidents import router as incidents_router
+from app.routes.auth import router as auth_router
 
 app = FastAPI(
     title="Pukaar Emergency Response API",
@@ -21,7 +22,9 @@ app.add_middleware(
 
 # Include endpoint routers
 app.include_router(health_router)
+app.include_router(auth_router)
 app.include_router(incidents_router)
+
 
 
 @app.get("/")

@@ -4,6 +4,7 @@ import '../../../../core/constants/app_colors.dart';
 import '../../../../core/constants/app_dimensions.dart';
 import '../../../../core/models/emergency_enums.dart';
 import '../../../../core/models/emergency_incident.dart';
+import '../../../../core/routing/app_routes.dart';
 import '../../../../core/services/location_service.dart';
 import '../../../../core/services/service_locator.dart';
 import '../../../../core/widgets/emergency_map.dart';
@@ -73,6 +74,14 @@ class _ResponderDashboardScreenState extends State<ResponderDashboardScreen> {
         _errorMessage = result.errorMessage ?? 'Failed to load active incidents.';
       }
     });
+  }
+
+  void _navigateToHome() {
+    if (Navigator.canPop(context)) {
+      Navigator.pop(context);
+    } else {
+      Navigator.pushReplacementNamed(context, AppRoutes.home);
+    }
   }
 
   Color _getCategoryColor(EmergencyCategory category) {
@@ -393,7 +402,13 @@ class _ResponderDashboardScreenState extends State<ResponderDashboardScreen> {
 
     return Scaffold(
       appBar: AppBar(
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back),
+          tooltip: 'Return to Citizen Home',
+          onPressed: _navigateToHome,
+        ),
         title: Row(
+          mainAxisSize: MainAxisSize.min,
           children: [
             const Icon(Icons.badge, color: AppColors.primary),
             const SizedBox(width: AppDimensions.spaceSm),
@@ -401,12 +416,17 @@ class _ResponderDashboardScreenState extends State<ResponderDashboardScreen> {
               'Responder Dashboard',
               style: theme.textTheme.headlineMedium?.copyWith(
                 fontWeight: FontWeight.w800,
-                fontSize: 20,
+                fontSize: 18,
               ),
             ),
           ],
         ),
         actions: [
+          IconButton(
+            icon: const Icon(Icons.home_outlined),
+            tooltip: 'Switch to Citizen View',
+            onPressed: _navigateToHome,
+          ),
           IconButton(
             icon: const Icon(Icons.refresh),
             tooltip: 'Refresh Incidents',
@@ -440,22 +460,35 @@ class _ResponderDashboardScreenState extends State<ResponderDashboardScreen> {
                     )
                   : _activeIncidents.isEmpty
                       ? ListView(
-                          children: const [
-                            SizedBox(height: 120),
+                          padding: AppDimensions.paddingLg,
+                          children: [
+                            const SizedBox(height: 80),
                             Center(
                               child: Column(
                                 mainAxisAlignment: MainAxisAlignment.center,
                                 children: [
-                                  Icon(Icons.check_circle_outline, size: 64, color: AppColors.success),
-                                  SizedBox(height: AppDimensions.spaceMd),
-                                  Text(
+                                  const Icon(Icons.check_circle_outline, size: 64, color: AppColors.success),
+                                  const SizedBox(height: AppDimensions.spaceMd),
+                                  const Text(
                                     'No Active Emergencies',
                                     style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
                                   ),
-                                  SizedBox(height: AppDimensions.spaceXs),
-                                  Text(
+                                  const SizedBox(height: AppDimensions.spaceXs),
+                                  const Text(
                                     'All emergency requests are currently clear or resolved.',
                                     style: TextStyle(color: Colors.grey, fontSize: 13),
+                                    textAlign: TextAlign.center,
+                                  ),
+                                  const SizedBox(height: AppDimensions.spaceLg),
+                                  ElevatedButton.icon(
+                                    icon: const Icon(Icons.home),
+                                    label: const Text('Return to Citizen Home'),
+                                    style: ElevatedButton.styleFrom(
+                                      backgroundColor: AppColors.secondary,
+                                      foregroundColor: AppColors.white,
+                                      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                                    ),
+                                    onPressed: _navigateToHome,
                                   ),
                                 ],
                               ),
