@@ -8,6 +8,7 @@ import 'auth_service.dart';
 import 'emergency_service.dart';
 import 'location_service.dart';
 import 'notification_service.dart';
+import 'realtime_service.dart';
 import 'secure_storage_service.dart';
 import 'storage_service.dart';
 
@@ -25,6 +26,7 @@ class ServiceLocator {
   late SecureStorageService secureStorageService;
   late LocationService locationService;
   late NotificationService notificationService;
+  late RealtimeService realtimeService;
   late AuthService authService;
   late EmergencyRepository emergencyRepository;
   late EmergencyService emergencyService;
@@ -37,6 +39,7 @@ class ServiceLocator {
     SecureStorageService? customSecureStorageService,
     LocationService? customLocationService,
     NotificationService? customNotificationService,
+    RealtimeService? customRealtimeService,
     AuthService? customAuthService,
     EmergencyRepository? customEmergencyRepository,
     EmergencyService? customEmergencyService,
@@ -52,16 +55,18 @@ class ServiceLocator {
     locationService = customLocationService ?? GeolocatorLocationService();
 
     notificationService = customNotificationService ?? MockNotificationService();
-    authService = customAuthService ??
-        (backendFlag 
-            ? ApiAuthService(apiService, storageService, secureStorageService) 
-            : MockAuthService(storageService, secureStorageService));
+    realtimeService = customRealtimeService ??
+        (backendFlag && customApiService == null ? WebSocketRealtimeService() : MockRealtimeService());
 
+    authService = customAuthService ??
+        (backendFlag
+            ? ApiAuthService(apiService, storageService, secureStorageService, realtimeService)
+            : MockAuthService(storageService, secureStorageService, realtimeService));
 
     if (customEmergencyRepository != null) {
       emergencyRepository = customEmergencyRepository;
     } else if (backendFlag) {
-      emergencyRepository = ApiEmergencyRepository(apiService);
+      emergencyRepository = ApiEmergencyRepository(apiService, realtimeService);
     } else {
       emergencyRepository = MockEmergencyRepository();
     }
@@ -82,3 +87,4 @@ class ServiceLocator {
     }
   }
 }
+

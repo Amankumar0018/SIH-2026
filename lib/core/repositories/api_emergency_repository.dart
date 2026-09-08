@@ -3,17 +3,27 @@ import '../config/app_config.dart';
 import '../models/emergency_enums.dart';
 import '../models/emergency_incident.dart';
 import '../services/api_service.dart';
+import '../services/realtime_service.dart';
 import '../utils/app_result.dart';
 import 'emergency_repository.dart';
 
 /// Backend-ready production implementation of [EmergencyRepository] communicating
-/// through the application's [ApiService] abstraction.
+/// through the application's [ApiService] abstraction and receiving real-time push events
+/// through [RealtimeService].
 class ApiEmergencyRepository implements EmergencyRepository {
   final ApiService _apiService;
+  final RealtimeService? _realtimeService;
   final StreamController<EmergencyIncident> _streamController =
       StreamController<EmergencyIncident>.broadcast();
+  StreamSubscription<EmergencyIncident>? _realtimeSubscription;
 
-  ApiEmergencyRepository(this._apiService);
+  ApiEmergencyRepository(this._apiService, [this._realtimeService]) {
+    if (_realtimeService != null) {
+      _realtimeSubscription = _realtimeService.incidentStream.listen((incident) {
+        _streamController.add(incident);
+      });
+    }
+  }
 
   @override
   Stream<EmergencyIncident> get incidentStream => _streamController.stream;
@@ -222,6 +232,7 @@ class ApiEmergencyRepository implements EmergencyRepository {
 
   @override
   void dispose() {
+    _realtimeSubscription?.cancel();
     _streamController.close();
   }
 }

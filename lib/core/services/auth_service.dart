@@ -2,6 +2,7 @@ import 'dart:convert';
 import '../models/user_profile.dart';
 import '../utils/app_result.dart';
 import 'api_service.dart';
+import 'realtime_service.dart';
 import 'secure_storage_service.dart';
 import 'storage_service.dart';
 
@@ -29,6 +30,7 @@ abstract class AuthService {
 class MockAuthService implements AuthService {
   final StorageService _storageService;
   final SecureStorageService _secureStorageService;
+  final RealtimeService? _realtimeService;
   UserProfile? _cachedProfile;
 
   static const String _kOnboardingCompleted = 'pukaar_onboarding_completed';
@@ -36,7 +38,7 @@ class MockAuthService implements AuthService {
   static const String _kUserProfile = 'pukaar_user_profile';
   static const String _kAuthToken = 'pukaar_auth_token';
 
-  MockAuthService(this._storageService, this._secureStorageService);
+  MockAuthService(this._storageService, this._secureStorageService, [this._realtimeService]);
 
   @override
   String? getAuthToken() => _cachedProfile?.token;
@@ -166,6 +168,8 @@ class MockAuthService implements AuthService {
     await _storageService.setString(_kUserProfile, jsonStrProfile);
     await _storageService.setBool(_kIsLoggedIn, true);
 
+    _realtimeService?.connect(profile.token!);
+
     return AppResult.success(profile);
   }
 
@@ -191,12 +195,16 @@ class MockAuthService implements AuthService {
     await _storageService.setString(_kUserProfile, jsonStr);
     await _storageService.setBool(_kIsLoggedIn, true);
 
+    _realtimeService?.connect(profileWithToken.token!);
+
     return AppResult.success(profileWithToken);
   }
 
   @override
   Future<UserProfile?> getCurrentUser() async {
-    if (_cachedProfile != null) return _cachedProfile;
+    if (_cachedProfile != null) {
+      return _cachedProfile;
+    }
 
     final jsonStr = await _storageService.getString(_kUserProfile);
     if (jsonStr != null) {
@@ -225,13 +233,16 @@ class MockAuthService implements AuthService {
     final token = await _secureStorageService.read(_kAuthToken);
     final isLoggedIn = await this.isLoggedIn();
     if (!isLoggedIn || token == null || token.isEmpty) {
+      await logout();
       return AppResult.failure('Not logged in', statusCode: 401);
     }
+    _realtimeService?.connect(token);
     return AppResult.success(true, statusCode: 200);
   }
 
   @override
   Future<void> logout() async {
+    _realtimeService?.disconnect();
     _cachedProfile = null;
     await _storageService.setBool(_kIsLoggedIn, false);
     await _storageService.remove(_kUserProfile);
@@ -244,6 +255,7 @@ class ApiAuthService implements AuthService {
   final ApiService _apiService;
   final StorageService _storageService;
   final SecureStorageService _secureStorageService;
+  final RealtimeService? _realtimeService;
   UserProfile? _cachedProfile;
 
   static const String _kOnboardingCompleted = 'pukaar_onboarding_completed';
@@ -251,7 +263,12 @@ class ApiAuthService implements AuthService {
   static const String _kUserProfile = 'pukaar_user_profile';
   static const String _kAuthToken = 'pukaar_auth_token';
 
-  ApiAuthService(this._apiService, this._storageService, this._secureStorageService);
+  ApiAuthService(
+    this._apiService,
+    this._storageService,
+    this._secureStorageService, [
+    this._realtimeService,
+  ]);
 
   @override
   String? getAuthToken() => _cachedProfile?.token;
@@ -358,6 +375,8 @@ class ApiAuthService implements AuthService {
     await _storageService.setString(_kUserProfile, json.encode(profileWithoutToken.toJson()));
     await _storageService.setBool(_kIsLoggedIn, true);
 
+    _realtimeService?.connect(token);
+
     return AppResult.success(profile);
   }
 
@@ -399,6 +418,8 @@ class ApiAuthService implements AuthService {
     final profileWithoutToken = updatedProfile.withoutToken();
     await _storageService.setString(_kUserProfile, json.encode(profileWithoutToken.toJson()));
     await _storageService.setBool(_kIsLoggedIn, true);
+
+    _realtimeService?.connect(token);
 
     return AppResult.success(updatedProfile);
   }
@@ -453,6 +474,7 @@ class ApiAuthService implements AuthService {
 
     // If no persisted token exists, do NOT make an unauthenticated /auth/me call
     if (token == null || token.isEmpty) {
+      await logout();
       return AppResult.failure('No active authentication token found', statusCode: 401);
     }
 
@@ -463,6 +485,9 @@ class ApiAuthService implements AuthService {
     final response = await _apiService.get('/auth/me');
 
     if (response.isSuccess) {
+      // Connect to Realtime WebSocket upon validated session
+      _realtimeService?.connect(token);
+
       // Synchronize cached profile with latest backend user information if returned
       if (response.data != null && response.data!['user'] is Map<String, dynamic>) {
         final userMap = response.data!['user'] as Map<String, dynamic>;
@@ -492,13 +517,15 @@ class ApiAuthService implements AuthService {
       return AppResult.success(true, statusCode: response.statusCode ?? 200);
     }
 
-    // 3. Handle failure: distinguish between HTTP 401 / Auth failure vs Network error
+    // 3. Handle failure: distinguish between HTTP 401/403 / Auth failure vs Network error
     final statusCode = response.statusCode;
     final isAuthError = statusCode == 401 ||
         statusCode == 403 ||
         (response.errorMessage != null &&
             (response.errorMessage!.contains('401') ||
+                response.errorMessage!.contains('403') ||
                 response.errorMessage!.toLowerCase().contains('unauthorized') ||
+                response.errorMessage!.toLowerCase().contains('forbidden') ||
                 response.errorMessage!.toLowerCase().contains('invalid') ||
                 response.errorMessage!.toLowerCase().contains('credentials') ||
                 response.errorMessage!.toLowerCase().contains('expired')));
@@ -526,6 +553,7 @@ class ApiAuthService implements AuthService {
         // Graceful handling if backend unavailable
       }
     }
+    _realtimeService?.disconnect();
     _cachedProfile = null;
     _apiService.setAuthToken(null);
     await _storageService.setBool(_kIsLoggedIn, false);

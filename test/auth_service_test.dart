@@ -3,6 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:pukaar/core/models/user_profile.dart';
 import 'package:pukaar/core/services/api_service.dart';
 import 'package:pukaar/core/services/auth_service.dart';
+import 'package:pukaar/core/services/realtime_service.dart';
 import 'package:pukaar/core/services/secure_storage_service.dart';
 import 'package:pukaar/core/services/storage_service.dart';
 import 'package:pukaar/core/utils/app_result.dart';
@@ -302,6 +303,116 @@ void main() {
       final rawProfileJson = await storageService.getString('pukaar_user_profile');
       final decodedMap = json.decode(rawProfileJson!) as Map<String, dynamic>;
       expect(decodedMap.containsKey('token'), isFalse);
+    });
+  });
+
+  group('WebSocket & Realtime Lifecycle Integration Tests', () {
+    late InMemoryStorageService testStorage;
+    late InMemorySecureStorageService testSecureStorage;
+    late MockTestApiService testApi;
+    late MockRealtimeService testRealtime;
+    late ApiAuthService authServiceWithRealtime;
+
+    setUp(() {
+      testStorage = InMemoryStorageService();
+      testSecureStorage = InMemorySecureStorageService();
+      testApi = MockTestApiService();
+      testRealtime = MockRealtimeService();
+      authServiceWithRealtime = ApiAuthService(
+        testApi,
+        testStorage,
+        testSecureStorage,
+        testRealtime,
+      );
+    });
+
+    test('WebSocket does NOT connect before restored session validation completes', () async {
+      // Setup persisted session
+      await testStorage.setBool('pukaar_is_logged_in', true);
+      const profile = UserProfile(
+        name: 'Saved User',
+        mobileNumber: '9876543210',
+        role: 'citizen',
+        emergencyContactName: 'Contact',
+        emergencyContactPhone: '100',
+      );
+      await testStorage.setString('pukaar_user_profile', json.encode(profile.toJson()));
+      await testSecureStorage.write('pukaar_auth_token', 'saved_token_123');
+
+      // Create a new instance representing app cold start
+      final coldStartAuth = ApiAuthService(testApi, testStorage, testSecureStorage, testRealtime);
+
+      // 1. Reading current user or loggedIn status MUST NOT trigger realtime connect
+      final currentUser = await coldStartAuth.getCurrentUser();
+      expect(currentUser, isNotNull);
+      expect(testRealtime.isConnected, isFalse);
+
+      final loggedIn = await coldStartAuth.isLoggedIn();
+      expect(loggedIn, isTrue);
+      expect(testRealtime.isConnected, isFalse);
+
+      // 2. ONLY after validateSession() succeeds should realtime connect
+      final valRes = await coldStartAuth.validateSession();
+      expect(valRes.isSuccess, isTrue);
+      expect(testRealtime.isConnected, isTrue);
+    });
+
+    test('Invalid restored session (401/403) does not connect or reconnect realtime service', () async {
+      await testStorage.setBool('pukaar_is_logged_in', true);
+      const profile = UserProfile(
+        name: 'Stale User',
+        mobileNumber: '9876543210',
+        role: 'citizen',
+        emergencyContactName: 'Contact',
+        emergencyContactPhone: '100',
+      );
+      await testStorage.setString('pukaar_user_profile', json.encode(profile.toJson()));
+      await testSecureStorage.write('pukaar_auth_token', 'stale_token_after_restart');
+
+      testApi.return401OnAuthMe = true;
+
+      final coldStartAuth = ApiAuthService(testApi, testStorage, testSecureStorage, testRealtime);
+      final valRes = await coldStartAuth.validateSession();
+
+      expect(valRes.isFailure, isTrue);
+      expect(valRes.statusCode, equals(401));
+      expect(testRealtime.isConnected, isFalse);
+      expect(await testSecureStorage.read('pukaar_auth_token'), isNull);
+      expect(await coldStartAuth.isLoggedIn(), isFalse);
+    });
+
+    test('Temporary network failure preserves session but does not mark realtime connected', () async {
+      await testStorage.setBool('pukaar_is_logged_in', true);
+      const profile = UserProfile(
+        name: 'Offline User',
+        mobileNumber: '9876543210',
+        role: 'citizen',
+        emergencyContactName: 'Contact',
+        emergencyContactPhone: '100',
+      );
+      await testStorage.setString('pukaar_user_profile', json.encode(profile.toJson()));
+      await testSecureStorage.write('pukaar_auth_token', 'persisted_offline_token');
+
+      testApi.returnNetworkErrorOnAuthMe = true;
+
+      final coldStartAuth = ApiAuthService(testApi, testStorage, testSecureStorage, testRealtime);
+      final valRes = await coldStartAuth.validateSession();
+
+      expect(valRes.isFailure, isTrue);
+      // Preserves session
+      expect(await coldStartAuth.isLoggedIn(), isTrue);
+      expect(await testSecureStorage.read('pukaar_auth_token'), equals('persisted_offline_token'));
+      // Does not connect realtime while unverified
+      expect(testRealtime.isConnected, isFalse);
+    });
+
+    test('Successful login connects realtime and logout disconnects realtime', () async {
+      final loginRes = await authServiceWithRealtime.loginWithPassword('9876543210', 'password123');
+      expect(loginRes.isSuccess, isTrue);
+      expect(testRealtime.isConnected, isTrue);
+
+      await authServiceWithRealtime.logout();
+      expect(testRealtime.isConnected, isFalse);
     });
   });
 }

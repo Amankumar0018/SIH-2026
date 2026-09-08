@@ -15,12 +15,13 @@ from app.models import (
 )
 from app.security import get_current_user, require_responder, check_incident_access
 from app.store import store
+from app.ws import connection_manager
 
 router = APIRouter(prefix="/incidents", tags=["Incidents"])
 
 
 @router.post("", status_code=status.HTTP_201_CREATED)
-def create_incident(
+async def create_incident(
     payload: IncidentCreateSchema,
     user: UserModel = Depends(get_current_user),
 ) -> Dict[str, Any]:
@@ -62,6 +63,8 @@ def create_incident(
     )
 
     created = store.save(incident)
+    await connection_manager.broadcast_incident_event("incident.created", created)
+
     return {
         "status": "success",
         "incident": created.model_dump(),
@@ -116,7 +119,7 @@ def get_incident(
 
 @router.put("/{incident_id}/status")
 @router.patch("/{incident_id}/status")
-def update_incident_status(
+async def update_incident_status(
     incident_id: str,
     payload: StatusUpdateSchema,
     user: UserModel = Depends(require_responder),
@@ -136,6 +139,8 @@ def update_incident_status(
             detail=f"Incident with ID '{incident_id}' not found.",
         )
 
+    await connection_manager.broadcast_incident_event("incident.updated", updated)
+
     return {
         "status": "success",
         "incident": updated.model_dump(),
@@ -143,7 +148,7 @@ def update_incident_status(
 
 
 @router.post("/{incident_id}/cancel")
-def cancel_incident(
+async def cancel_incident(
     incident_id: str,
     payload: CancelIncidentSchema = CancelIncidentSchema(),
     user: UserModel = Depends(get_current_user),
@@ -162,6 +167,8 @@ def cancel_incident(
         )
 
     cancelled = store.cancel(incident_id, reason=payload.reason)
+    await connection_manager.broadcast_incident_event("incident.updated", cancelled)
+
     return {
         "status": "success",
         "incident": cancelled.model_dump(),
@@ -169,7 +176,7 @@ def cancel_incident(
 
 
 @router.post("/{incident_id}/assign-responder")
-def assign_responder(
+async def assign_responder(
     incident_id: str,
     payload: AssignResponderSchema,
     user: UserModel = Depends(require_responder),
@@ -190,6 +197,8 @@ def assign_responder(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Incident with ID '{incident_id}' not found.",
         )
+
+    await connection_manager.broadcast_incident_event("incident.updated", updated)
 
     return {
         "status": "success",
