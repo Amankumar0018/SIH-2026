@@ -1,3 +1,4 @@
+import 'ai_intelligence.dart';
 import 'emergency_enums.dart';
 
 /// Central domain model representing an emergency incident lifecycle in Pukaar.
@@ -58,6 +59,9 @@ class EmergencyIncident {
   /// Optional contextual incident notes or dispatcher triage remarks.
   final String? notes;
 
+  /// Optional AI incident intelligence and responder guidance metadata.
+  final AIIntelligence? aiIntelligence;
+
   const EmergencyIncident({
     required this.id,
     required this.userId,
@@ -77,6 +81,7 @@ class EmergencyIncident {
     this.responderLongitude,
     this.estimatedArrivalMinutes,
     this.notes,
+    this.aiIntelligence,
   });
 
   /// Creates a copy of this incident with modified fields.
@@ -99,6 +104,7 @@ class EmergencyIncident {
     double? responderLongitude,
     int? estimatedArrivalMinutes,
     String? notes,
+    AIIntelligence? aiIntelligence,
   }) {
     return EmergencyIncident(
       id: id ?? this.id,
@@ -119,6 +125,7 @@ class EmergencyIncident {
       responderLongitude: responderLongitude ?? this.responderLongitude,
       estimatedArrivalMinutes: estimatedArrivalMinutes ?? this.estimatedArrivalMinutes,
       notes: notes ?? this.notes,
+      aiIntelligence: aiIntelligence ?? this.aiIntelligence,
     );
   }
 
@@ -143,6 +150,7 @@ class EmergencyIncident {
       'responderLongitude': responderLongitude,
       'estimatedArrivalMinutes': estimatedArrivalMinutes,
       'notes': notes,
+      if (aiIntelligence != null) 'aiIntelligence': aiIntelligence!.toJson(),
     };
   }
 
@@ -169,6 +177,9 @@ class EmergencyIncident {
       responderLongitude: (json['responderLongitude'] as num?)?.toDouble(),
       estimatedArrivalMinutes: json['estimatedArrivalMinutes'] as int?,
       notes: json['notes'] as String?,
+      aiIntelligence: json['aiIntelligence'] != null && json['aiIntelligence'] is Map<String, dynamic>
+          ? AIIntelligence.fromJson(json['aiIntelligence'] as Map<String, dynamic>)
+          : null,
     );
   }
 

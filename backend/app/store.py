@@ -4,7 +4,7 @@ import time
 import hashlib
 import os
 import secrets
-from app.models import EmergencyIncidentModel, UserModel
+from app.models import EmergencyIncidentModel, UserModel, AIIntelligenceModel
 
 
 class IncidentStore:
@@ -86,6 +86,18 @@ class IncidentStore:
                 "estimatedArrivalMinutes": eta_minutes if eta_minutes is not None else inc.estimatedArrivalMinutes,
             }
         )
+        self._incidents[incident_id] = updated
+        return updated
+
+    def update_ai_intelligence(
+        self,
+        incident_id: str,
+        ai_intelligence: AIIntelligenceModel,
+    ) -> Optional[EmergencyIncidentModel]:
+        inc = self.get_by_id(incident_id)
+        if not inc:
+            return None
+        updated = inc.model_copy(update={"aiIntelligence": ai_intelligence})
         self._incidents[incident_id] = updated
         return updated
 

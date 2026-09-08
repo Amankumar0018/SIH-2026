@@ -28,6 +28,17 @@ class EmergencyPriorityEnum(str, Enum):
     critical = "critical"
 
 
+class AIIntelligenceModel(BaseModel):
+    summary: str = Field(..., max_length=500)
+    urgencyScore: str = Field(..., max_length=50)
+    hazards: List[str] = Field(default_factory=list)
+    recommendedActions: List[str] = Field(default_factory=list)
+    missingInfo: List[str] = Field(default_factory=list)
+    source: str = Field(default="rule_based", max_length=50)
+    confidence: float = Field(default=0.5, ge=0.0, le=1.0)
+    generatedAt: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+
+
 class EmergencyIncidentModel(BaseModel):
     id: str
     userId: str = "guest_user"
@@ -47,6 +58,7 @@ class EmergencyIncidentModel(BaseModel):
     responderLongitude: Optional[float] = None
     estimatedArrivalMinutes: Optional[int] = None
     notes: Optional[str] = None
+    aiIntelligence: Optional[AIIntelligenceModel] = None
 
 
 class IncidentCreateSchema(BaseModel):

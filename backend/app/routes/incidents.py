@@ -1,6 +1,6 @@
 from datetime import datetime, timezone
-from fastapi import APIRouter, HTTPException, status, Depends
-from typing import Dict, Any
+from fastapi import APIRouter, HTTPException, status, Depends, BackgroundTasks
+from typing import Dict, Any, Optional
 
 from app.models import (
     EmergencyIncidentModel,
@@ -16,13 +16,39 @@ from app.models import (
 from app.security import get_current_user, require_responder, check_incident_access
 from app.store import store
 from app.ws import connection_manager
+from app.ai_service import generate_rule_based_intelligence, enrich_incident_with_llm
 
 router = APIRouter(prefix="/incidents", tags=["Incidents"])
+
+
+async def _async_enrich_incident_llm(
+    incident_id: str,
+    category: str,
+    intent: str,
+    notes: Optional[str],
+    priority: str,
+):
+    """Background task to enrich incident with external LLM if configured and broadcast update."""
+    try:
+        enriched_ai = await enrich_incident_with_llm(
+            category=category,
+            intent=intent,
+            notes=notes,
+            priority=priority,
+        )
+        if enriched_ai:
+            updated = store.update_ai_intelligence(incident_id, enriched_ai)
+            if updated:
+                await connection_manager.broadcast_incident_event("incident.updated", updated)
+    except Exception:
+        # Non-blocking, safe fallback
+        pass
 
 
 @router.post("", status_code=status.HTTP_201_CREATED)
 async def create_incident(
     payload: IncidentCreateSchema,
+    background_tasks: BackgroundTasks,
     user: UserModel = Depends(get_current_user),
 ) -> Dict[str, Any]:
     # Category validation
@@ -48,6 +74,14 @@ async def create_incident(
     user_id = user.mobileNumber
     initial_status = EmergencyStatusEnum.created.value
 
+    # Generate immediate rule-based AI intelligence (0ms, non-blocking)
+    initial_ai = generate_rule_based_intelligence(
+        category=payload.category,
+        intent=payload.intent,
+        notes=payload.notes,
+        priority=priority,
+    )
+
     incident = EmergencyIncidentModel(
         id=incident_id,
         userId=user_id,
@@ -60,10 +94,21 @@ async def create_incident(
         priority=priority,
         status=initial_status,
         notes=payload.notes,
+        aiIntelligence=initial_ai,
     )
 
     created = store.save(incident)
     await connection_manager.broadcast_incident_event("incident.created", created)
+
+    # Schedule asynchronous LLM enrichment
+    background_tasks.add_task(
+        _async_enrich_incident_llm,
+        incident_id=incident_id,
+        category=payload.category,
+        intent=payload.intent,
+        notes=payload.notes,
+        priority=priority,
+    )
 
     return {
         "status": "success",

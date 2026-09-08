@@ -10,6 +10,7 @@ import '../../../../core/services/service_locator.dart';
 import '../../../../core/widgets/emergency_map.dart';
 import '../../../../shared/widgets/app_card.dart';
 import '../../../../shared/widgets/primary_button.dart';
+import '../widgets/ai_incident_card.dart';
 
 /// Central Dashboard Screen for Emergency Responders to view active incidents,
 /// accept dispatches, and update response progress.
@@ -344,6 +345,12 @@ class _ResponderDashboardScreenState extends State<ResponderDashboardScreen> {
               ),
             ],
           ),
+
+          // AI Incident Intelligence (if available)
+          if (incident.aiIntelligence != null) ...[
+            const SizedBox(height: AppDimensions.spaceSm),
+            AIIncidentCard(intelligence: incident.aiIntelligence!),
+          ],
 
           // Assigned Responder Info if present
           if (incident.assignedResponderName != null) ...[
