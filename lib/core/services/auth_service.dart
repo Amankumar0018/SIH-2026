@@ -2,6 +2,7 @@ import 'dart:convert';
 import '../models/user_profile.dart';
 import '../utils/app_result.dart';
 import 'api_service.dart';
+import 'secure_storage_service.dart';
 import 'storage_service.dart';
 
 /// Contract interface for Pukaar user authentication and session management.
@@ -16,6 +17,7 @@ abstract class AuthService {
   Future<AppResult<UserProfile>> registerUser(UserProfile profile, {String? password});
   Future<UserProfile?> getCurrentUser();
   Future<void> updateCurrentUser(UserProfile profile);
+  Future<AppResult<bool>> validateSession();
   Future<void> logout();
 
   String? getAuthToken();
@@ -26,16 +28,18 @@ abstract class AuthService {
 /// Persists session and profile state using the provided [StorageService].
 class MockAuthService implements AuthService {
   final StorageService _storageService;
+  final SecureStorageService _secureStorageService;
   UserProfile? _cachedProfile;
 
   static const String _kOnboardingCompleted = 'pukaar_onboarding_completed';
   static const String _kIsLoggedIn = 'pukaar_is_logged_in';
   static const String _kUserProfile = 'pukaar_user_profile';
+  static const String _kAuthToken = 'pukaar_auth_token';
 
-  MockAuthService(this._storageService);
+  MockAuthService(this._storageService, this._secureStorageService);
 
   @override
-  String? getAuthToken() => _cachedProfile?.token ?? 'mock_bearer_token_123';
+  String? getAuthToken() => _cachedProfile?.token;
 
   @override
   String getRole() => _cachedProfile?.role ?? 'citizen';
@@ -78,9 +82,10 @@ class MockAuthService implements AuthService {
     if (jsonStr != null) {
       try {
         final profile = UserProfile.fromJson(json.decode(jsonStr) as Map<String, dynamic>);
-        _cachedProfile = profile;
+        final token = await _secureStorageService.read(_kAuthToken);
+        _cachedProfile = profile.copyWith(token: token);
         await _storageService.setBool(_kIsLoggedIn, true);
-        return AppResult.success(profile);
+        return AppResult.success(_cachedProfile!);
       } catch (_) {}
     }
 
@@ -92,14 +97,21 @@ class MockAuthService implements AuthService {
       role = 'dual';
     }
 
+    final token = 'mock_token_$mobileNumber';
     final partialProfile = UserProfile(
       name: role == 'responder' ? 'Demo Responder' : role == 'dual' ? 'Demo Dual User' : '',
       mobileNumber: mobileNumber,
       role: role,
-      token: 'mock_token_$mobileNumber',
+      token: token,
       emergencyContactName: 'Emergency Contact',
       emergencyContactPhone: '102',
     );
+    _cachedProfile = partialProfile;
+    await _secureStorageService.write(_kAuthToken, token);
+    final profileWithoutToken = partialProfile.withoutToken();
+    await _storageService.setString(_kUserProfile, json.encode(profileWithoutToken.toJson()));
+    await _storageService.setBool(_kIsLoggedIn, true);
+
     return AppResult.success(partialProfile);
   }
 
@@ -120,9 +132,10 @@ class MockAuthService implements AuthService {
       try {
         final stored = UserProfile.fromJson(json.decode(jsonStr) as Map<String, dynamic>);
         if (stored.mobileNumber == mobileNumber) {
-          _cachedProfile = stored;
+          final token = await _secureStorageService.read(_kAuthToken);
+          _cachedProfile = stored.copyWith(token: token);
           await _storageService.setBool(_kIsLoggedIn, true);
-          return AppResult.success(stored);
+          return AppResult.success(_cachedProfile!);
         }
       } catch (_) {}
     }
@@ -147,7 +160,9 @@ class MockAuthService implements AuthService {
     );
 
     _cachedProfile = profile;
-    final jsonStrProfile = json.encode(profile.toJson());
+    await _secureStorageService.write(_kAuthToken, profile.token!);
+    final profileWithoutToken = profile.withoutToken();
+    final jsonStrProfile = json.encode(profileWithoutToken.toJson());
     await _storageService.setString(_kUserProfile, jsonStrProfile);
     await _storageService.setBool(_kIsLoggedIn, true);
 
@@ -170,7 +185,9 @@ class MockAuthService implements AuthService {
     );
 
     _cachedProfile = profileWithToken;
-    final jsonStr = json.encode(profileWithToken.toJson());
+    await _secureStorageService.write(_kAuthToken, profileWithToken.token!);
+    final profileWithoutToken = profileWithToken.withoutToken();
+    final jsonStr = json.encode(profileWithoutToken.toJson());
     await _storageService.setString(_kUserProfile, jsonStr);
     await _storageService.setBool(_kIsLoggedIn, true);
 
@@ -184,7 +201,9 @@ class MockAuthService implements AuthService {
     final jsonStr = await _storageService.getString(_kUserProfile);
     if (jsonStr != null) {
       try {
-        _cachedProfile = UserProfile.fromJson(json.decode(jsonStr) as Map<String, dynamic>);
+        final profile = UserProfile.fromJson(json.decode(jsonStr) as Map<String, dynamic>);
+        final token = await _secureStorageService.read(_kAuthToken);
+        _cachedProfile = profile.copyWith(token: token);
         return _cachedProfile;
       } catch (_) {
         return null;
@@ -196,8 +215,19 @@ class MockAuthService implements AuthService {
   @override
   Future<void> updateCurrentUser(UserProfile profile) async {
     _cachedProfile = profile;
-    final jsonStr = json.encode(profile.toJson());
+    final profileWithoutToken = profile.withoutToken();
+    final jsonStr = json.encode(profileWithoutToken.toJson());
     await _storageService.setString(_kUserProfile, jsonStr);
+  }
+
+  @override
+  Future<AppResult<bool>> validateSession() async {
+    final token = await _secureStorageService.read(_kAuthToken);
+    final isLoggedIn = await this.isLoggedIn();
+    if (!isLoggedIn || token == null || token.isEmpty) {
+      return AppResult.failure('Not logged in', statusCode: 401);
+    }
+    return AppResult.success(true, statusCode: 200);
   }
 
   @override
@@ -205,6 +235,7 @@ class MockAuthService implements AuthService {
     _cachedProfile = null;
     await _storageService.setBool(_kIsLoggedIn, false);
     await _storageService.remove(_kUserProfile);
+    await _secureStorageService.delete(_kAuthToken);
   }
 }
 
@@ -212,13 +243,15 @@ class MockAuthService implements AuthService {
 class ApiAuthService implements AuthService {
   final ApiService _apiService;
   final StorageService _storageService;
+  final SecureStorageService _secureStorageService;
   UserProfile? _cachedProfile;
 
   static const String _kOnboardingCompleted = 'pukaar_onboarding_completed';
   static const String _kIsLoggedIn = 'pukaar_is_logged_in';
   static const String _kUserProfile = 'pukaar_user_profile';
+  static const String _kAuthToken = 'pukaar_auth_token';
 
-  ApiAuthService(this._apiService, this._storageService);
+  ApiAuthService(this._apiService, this._storageService, this._secureStorageService);
 
   @override
   String? getAuthToken() => _cachedProfile?.token;
@@ -320,7 +353,9 @@ class ApiAuthService implements AuthService {
     );
 
     _cachedProfile = profile;
-    await _storageService.setString(_kUserProfile, json.encode(profile.toJson()));
+    await _secureStorageService.write(_kAuthToken, token);
+    final profileWithoutToken = profile.withoutToken();
+    await _storageService.setString(_kUserProfile, json.encode(profileWithoutToken.toJson()));
     await _storageService.setBool(_kIsLoggedIn, true);
 
     return AppResult.success(profile);
@@ -360,7 +395,9 @@ class ApiAuthService implements AuthService {
     );
 
     _cachedProfile = updatedProfile;
-    await _storageService.setString(_kUserProfile, json.encode(updatedProfile.toJson()));
+    await _secureStorageService.write(_kAuthToken, token);
+    final profileWithoutToken = updatedProfile.withoutToken();
+    await _storageService.setString(_kUserProfile, json.encode(profileWithoutToken.toJson()));
     await _storageService.setBool(_kIsLoggedIn, true);
 
     return AppResult.success(updatedProfile);
@@ -379,9 +416,10 @@ class ApiAuthService implements AuthService {
     if (jsonStr != null) {
       try {
         final profile = UserProfile.fromJson(json.decode(jsonStr) as Map<String, dynamic>);
-        _cachedProfile = profile;
-        if (profile.token != null) {
-          _apiService.setAuthToken(profile.token);
+        final token = await _secureStorageService.read(_kAuthToken);
+        _cachedProfile = profile.copyWith(token: token);
+        if (token != null) {
+          _apiService.setAuthToken(token);
         }
         return _cachedProfile;
       } catch (_) {
@@ -394,14 +432,104 @@ class ApiAuthService implements AuthService {
   @override
   Future<void> updateCurrentUser(UserProfile profile) async {
     _cachedProfile = profile;
-    await _storageService.setString(_kUserProfile, json.encode(profile.toJson()));
+    final profileWithoutToken = profile.withoutToken();
+    await _storageService.setString(_kUserProfile, json.encode(profileWithoutToken.toJson()));
+  }
+
+  @override
+  Future<AppResult<bool>> validateSession() async {
+    // 1. Explicitly ensure token and profile are restored before calling /auth/me
+    if (_cachedProfile == null || _cachedProfile?.token == null) {
+      await getCurrentUser();
+    }
+
+    String? token = _cachedProfile?.token;
+    if (token == null || token.isEmpty) {
+      token = await _secureStorageService.read(_kAuthToken);
+      if (token != null && token.isNotEmpty && _cachedProfile != null) {
+        _cachedProfile = _cachedProfile!.copyWith(token: token);
+      }
+    }
+
+    // If no persisted token exists, do NOT make an unauthenticated /auth/me call
+    if (token == null || token.isEmpty) {
+      return AppResult.failure('No active authentication token found', statusCode: 401);
+    }
+
+    // Attach restored token to ApiService before making the request
+    _apiService.setAuthToken(token);
+
+    // 2. Validate session with backend
+    final response = await _apiService.get('/auth/me');
+
+    if (response.isSuccess) {
+      // Synchronize cached profile with latest backend user information if returned
+      if (response.data != null && response.data!['user'] is Map<String, dynamic>) {
+        final userMap = response.data!['user'] as Map<String, dynamic>;
+        final current = _cachedProfile ??
+            const UserProfile(
+              name: '',
+              mobileNumber: '',
+              emergencyContactName: '',
+              emergencyContactPhone: '',
+            );
+        final updatedProfile = current.copyWith(
+          name: userMap['name'] as String? ?? current.name,
+          role: userMap['role'] as String? ?? current.role,
+          email: userMap['email'] as String? ?? current.email,
+          emergencyContactName: userMap['emergencyContactName'] as String? ?? current.emergencyContactName,
+          emergencyContactPhone: userMap['emergencyContactPhone'] as String? ?? current.emergencyContactPhone,
+          bloodGroup: userMap['bloodGroup'] as String? ?? current.bloodGroup,
+          allergies: userMap['allergies'] as String? ?? current.allergies,
+          medications: userMap['medications'] as String? ?? current.medications,
+          token: token,
+        );
+        _cachedProfile = updatedProfile;
+        final profileWithoutToken = updatedProfile.withoutToken();
+        await _storageService.setString(_kUserProfile, json.encode(profileWithoutToken.toJson()));
+        await _storageService.setBool(_kIsLoggedIn, true);
+      }
+      return AppResult.success(true, statusCode: response.statusCode ?? 200);
+    }
+
+    // 3. Handle failure: distinguish between HTTP 401 / Auth failure vs Network error
+    final statusCode = response.statusCode;
+    final isAuthError = statusCode == 401 ||
+        statusCode == 403 ||
+        (response.errorMessage != null &&
+            (response.errorMessage!.contains('401') ||
+                response.errorMessage!.toLowerCase().contains('unauthorized') ||
+                response.errorMessage!.toLowerCase().contains('invalid') ||
+                response.errorMessage!.toLowerCase().contains('credentials') ||
+                response.errorMessage!.toLowerCase().contains('expired')));
+
+    if (isAuthError) {
+      // Token is invalid/expired. Clear local session deterministically.
+      await logout();
+      return AppResult.failure(response.errorMessage ?? 'Unauthorized session', statusCode: statusCode ?? 401);
+    }
+
+    // Network failure / timeout: DO NOT delete the persisted token
+    return AppResult.failure(response.errorMessage ?? 'Session validation network failure', statusCode: statusCode);
   }
 
   @override
   Future<void> logout() async {
+    final token = _cachedProfile?.token;
+    if (token != null && token.isNotEmpty) {
+      try {
+        await _apiService
+            .post('/auth/logout')
+            .timeout(const Duration(seconds: 2))
+            .catchError((_) => AppResult.success(<String, dynamic>{}));
+      } catch (_) {
+        // Graceful handling if backend unavailable
+      }
+    }
     _cachedProfile = null;
     _apiService.setAuthToken(null);
     await _storageService.setBool(_kIsLoggedIn, false);
     await _storageService.remove(_kUserProfile);
+    await _secureStorageService.delete(_kAuthToken);
   }
 }

@@ -8,6 +8,7 @@ import 'auth_service.dart';
 import 'emergency_service.dart';
 import 'location_service.dart';
 import 'notification_service.dart';
+import 'secure_storage_service.dart';
 import 'storage_service.dart';
 
 /// Lightweight dependency container for Pukaar foundation services and repositories.
@@ -21,6 +22,7 @@ class ServiceLocator {
 
   late ApiService apiService;
   late StorageService storageService;
+  late SecureStorageService secureStorageService;
   late LocationService locationService;
   late NotificationService notificationService;
   late AuthService authService;
@@ -32,6 +34,7 @@ class ServiceLocator {
   void init({
     ApiService? customApiService,
     StorageService? customStorageService,
+    SecureStorageService? customSecureStorageService,
     LocationService? customLocationService,
     NotificationService? customNotificationService,
     AuthService? customAuthService,
@@ -41,14 +44,18 @@ class ServiceLocator {
   }) {
     final bool backendFlag = useBackendApi ?? AppConfig.useBackendApi;
     this.useBackendApi = backendFlag;
+    AppConfig.useBackendApi = backendFlag;
 
     apiService = customApiService ?? (backendFlag ? HttpApiService() : MockApiService());
     storageService = customStorageService ?? InMemoryStorageService();
+    secureStorageService = customSecureStorageService ?? InMemorySecureStorageService();
     locationService = customLocationService ?? GeolocatorLocationService();
 
     notificationService = customNotificationService ?? MockNotificationService();
     authService = customAuthService ??
-        (backendFlag ? ApiAuthService(apiService, storageService) : MockAuthService(storageService));
+        (backendFlag 
+            ? ApiAuthService(apiService, storageService, secureStorageService) 
+            : MockAuthService(storageService, secureStorageService));
 
 
     if (customEmergencyRepository != null) {

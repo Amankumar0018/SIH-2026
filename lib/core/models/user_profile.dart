@@ -43,6 +43,7 @@ class UserProfile {
     String? mobileNumber,
     String? role,
     String? token,
+    bool clearToken = false,
     String? email,
     int? age,
     String? emergencyContactName,
@@ -55,7 +56,7 @@ class UserProfile {
       name: name ?? this.name,
       mobileNumber: mobileNumber ?? this.mobileNumber,
       role: role ?? this.role,
-      token: token ?? this.token,
+      token: clearToken ? null : (token ?? this.token),
       email: email ?? this.email,
       age: age ?? this.age,
       emergencyContactName: emergencyContactName ?? this.emergencyContactName,
@@ -66,12 +67,13 @@ class UserProfile {
     );
   }
 
+  UserProfile withoutToken() => copyWith(clearToken: true);
+
   Map<String, dynamic> toJson() {
-    return {
+    final map = <String, dynamic>{
       'name': name,
       'mobileNumber': mobileNumber,
       'role': role,
-      'token': token,
       'email': email,
       'age': age,
       'emergencyContactName': emergencyContactName,
@@ -80,6 +82,10 @@ class UserProfile {
       'allergies': allergies,
       'medications': medications,
     };
+    if (token != null) {
+      map['token'] = token;
+    }
+    return map;
   }
 
   factory UserProfile.fromJson(Map<String, dynamic> json) {

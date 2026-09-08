@@ -1,5 +1,5 @@
-from typing import Dict, Any
-from fastapi import APIRouter, HTTPException, Depends, status
+from typing import Dict, Any, Optional
+from fastapi import APIRouter, HTTPException, Depends, status, Header
 
 from app.models import (
     UserLoginSchema,
@@ -85,3 +85,21 @@ def get_current_user_profile(user: UserModel = Depends(get_current_user)) -> Dic
             "medications": user.medications,
         },
     }
+
+@router.post("/logout")
+def logout(
+    authorization: Optional[str] = Header(None, alias="Authorization"),
+    x_auth_token: Optional[str] = Header(None, alias="X-Auth-Token"),
+) -> Dict[str, Any]:
+    token: Optional[str] = None
+    if authorization and authorization.startswith("Bearer "):
+        token = authorization[7:].strip()
+    elif authorization:
+        token = authorization.strip()
+    elif x_auth_token:
+        token = x_auth_token.strip()
+    
+    if token:
+        user_store.revoke_token(token)
+    
+    return {"status": "success", "message": "Successfully logged out"}

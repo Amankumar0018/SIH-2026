@@ -148,3 +148,25 @@ def test_get_current_user_profile():
     user_data = response.json()["user"]
     assert user_data["mobileNumber"] == "9876543210"
     assert user_data["role"] == "citizen"
+
+
+def test_logout_revokes_token():
+    # Login to obtain token
+    c_res = client.post("/auth/login", json={"mobileNumber": "9876543210", "password": "password123"})
+    c_token = c_res.json()["accessToken"]
+
+    headers = {"Authorization": f"Bearer {c_token}"}
+    
+    # Confirm token is valid
+    me_res = client.get("/auth/me", headers=headers)
+    assert me_res.status_code == 200
+
+    # Logout
+    logout_res = client.post("/auth/logout", headers=headers)
+    assert logout_res.status_code == 200
+    assert logout_res.json()["status"] == "success"
+
+    # Confirm token is now revoked and returns 401
+    me_after_res = client.get("/auth/me", headers=headers)
+    assert me_after_res.status_code == 401
+

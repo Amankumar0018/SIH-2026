@@ -29,7 +29,16 @@ class _SplashScreenState extends State<SplashScreen> {
 
     // Fetch session details asynchronously
     final onboardingCompleted = await authService.isOnboardingCompleted();
-    final loggedIn = await authService.isLoggedIn();
+    bool loggedIn = await authService.isLoggedIn();
+
+    if (loggedIn) {
+      final validationResult = await authService.validateSession();
+      if (!validationResult.isSuccess) {
+        // If token is invalid (401), authService.logout() was executed, so isLoggedIn() is false.
+        // If network is offline, session is preserved, so isLoggedIn() remains true.
+        loggedIn = await authService.isLoggedIn();
+      }
+    }
 
     _timer = Timer(const Duration(milliseconds: 1500), () {
       if (mounted) {

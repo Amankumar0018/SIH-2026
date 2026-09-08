@@ -129,13 +129,13 @@ class HttpApiService implements ApiService {
 
       if (response.statusCode >= 200 && response.statusCode < 300) {
         if (responseBody.isEmpty) {
-          return AppResult.success({'status': 'success'});
+          return AppResult.success({'status': 'success'}, statusCode: response.statusCode);
         }
         final decoded = json.decode(responseBody);
         if (decoded is Map<String, dynamic>) {
-          return AppResult.success(decoded);
+          return AppResult.success(decoded, statusCode: response.statusCode);
         }
-        return AppResult.success({'data': decoded});
+        return AppResult.success({'data': decoded}, statusCode: response.statusCode);
       } else {
         String errorMsg = 'HTTP ${response.statusCode} error on $method $endpoint';
         if (responseBody.isNotEmpty) {
@@ -146,10 +146,10 @@ class HttpApiService implements ApiService {
             }
           } catch (_) {}
         }
-        return AppResult.failure(errorMsg);
+        return AppResult.failure(errorMsg, statusCode: response.statusCode);
       }
     } on TimeoutException {
-      return AppResult.failure('Network request timed out for $method $endpoint');
+      return AppResult.failure('Network request timed out for $method $endpoint', statusCode: 408);
     } catch (e) {
       return AppResult.failure('Network connection error ($method $endpoint): $e');
     }

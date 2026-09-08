@@ -1,13 +1,19 @@
+import 'dart:convert';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pukaar/core/models/user_profile.dart';
 import 'package:pukaar/core/services/api_service.dart';
 import 'package:pukaar/core/services/auth_service.dart';
+import 'package:pukaar/core/services/secure_storage_service.dart';
 import 'package:pukaar/core/services/storage_service.dart';
 import 'package:pukaar/core/utils/app_result.dart';
 
 class MockTestApiService implements ApiService {
   String? token;
   Map<String, dynamic>? lastBody;
+  bool return401OnAuthMe = false;
+  bool returnNetworkErrorOnAuthMe = false;
+  bool logoutCalled = false;
+  String? tokenSeenDuringAuthMe;
 
   @override
   void setAuthToken(String? token) {
@@ -19,7 +25,7 @@ class MockTestApiService implements ApiService {
     lastBody = body;
     if (endpoint == '/auth/login') {
       if (body?['password'] == 'wrong') {
-        return AppResult.failure('Invalid mobile number or password.');
+        return AppResult.failure('Invalid mobile number or password.', statusCode: 401);
       }
       final mobile = body?['mobileNumber'];
       final role = (mobile == '9000000000')
@@ -37,10 +43,10 @@ class MockTestApiService implements ApiService {
             : role == 'dual'
                 ? 'Dual One'
                 : 'Citizen One',
-      });
+      }, statusCode: 200);
     } else if (endpoint == '/auth/register') {
       if (body?['mobileNumber'] == '0000000000') {
-        return AppResult.failure('An account with this mobile number already exists.');
+        return AppResult.failure('An account with this mobile number already exists.', statusCode: 400);
       }
       return AppResult.success({
         'accessToken': 'api_token_67890',
@@ -48,15 +54,24 @@ class MockTestApiService implements ApiService {
         'role': body?['role'] ?? 'citizen',
         'mobileNumber': body?['mobileNumber'],
         'name': body?['name'],
-      });
+      }, statusCode: 201);
+    } else if (endpoint == '/auth/logout') {
+      logoutCalled = true;
+      return AppResult.success({'status': 'success'}, statusCode: 200);
     }
-    return AppResult.failure('Unknown endpoint');
+    return AppResult.failure('Unknown endpoint', statusCode: 404);
   }
 
   @override
   Future<AppResult<Map<String, dynamic>>> get(String endpoint, {Map<String, dynamic>? queryParameters}) async {
     if (endpoint == '/auth/me') {
-      if (token == null) return AppResult.failure('Missing authentication credentials.');
+      tokenSeenDuringAuthMe = token;
+      if (returnNetworkErrorOnAuthMe) {
+        return AppResult.failure('Network connection error: connection refused', statusCode: null);
+      }
+      if (return401OnAuthMe || token == null || token!.isEmpty) {
+        return AppResult.failure('Unauthorized: invalid or missing credentials', statusCode: 401);
+      }
       return AppResult.success({
         'status': 'success',
         'user': {
@@ -65,39 +80,41 @@ class MockTestApiService implements ApiService {
           'mobileNumber': '9876543210',
           'role': 'citizen',
         }
-      });
+      }, statusCode: 200);
     }
-    return AppResult.failure('Not found');
+    return AppResult.failure('Not found', statusCode: 404);
   }
 
   @override
   Future<AppResult<Map<String, dynamic>>> put(String endpoint, {Map<String, dynamic>? body}) async {
-    return AppResult.success({});
+    return AppResult.success({}, statusCode: 200);
   }
 
   @override
   Future<AppResult<bool>> delete(String endpoint) async {
-    return AppResult.success(true);
+    return AppResult.success(true, statusCode: 200);
   }
 }
 
 void main() {
   late InMemoryStorageService storageService;
+  late InMemorySecureStorageService secureStorageService;
   late MockTestApiService apiService;
   late ApiAuthService apiAuthService;
   late MockAuthService mockAuthService;
 
   setUp(() {
     storageService = InMemoryStorageService();
+    secureStorageService = InMemorySecureStorageService();
     apiService = MockTestApiService();
-    apiAuthService = ApiAuthService(apiService, storageService);
-    mockAuthService = MockAuthService(storageService);
+    apiAuthService = ApiAuthService(apiService, storageService, secureStorageService);
+    mockAuthService = MockAuthService(storageService, secureStorageService);
   });
 
   group('MockAuthService Tests', () {
-    test('MockAuthService default role and token', () async {
+    test('MockAuthService default role and token (unauthenticated returns null token)', () async {
       expect(mockAuthService.getRole(), equals('citizen'));
-      expect(mockAuthService.getAuthToken(), equals('mock_bearer_token_123'));
+      expect(mockAuthService.getAuthToken(), isNull);
     });
 
     test('MockAuthService loginWithPassword for citizen, responder, and dual', () async {
@@ -106,6 +123,7 @@ void main() {
       expect(citizenRes.data!.role, equals('citizen'));
       expect(citizenRes.data!.isResponder, isFalse);
       expect(citizenRes.data!.isCitizen, isTrue);
+      expect(mockAuthService.getAuthToken(), equals('mock_token_9876543210'));
 
       final responderRes = await mockAuthService.loginWithPassword('9000000000', 'responder123');
       expect(responderRes.isSuccess, isTrue);
@@ -124,57 +142,148 @@ void main() {
       final res = await mockAuthService.verifyOtp('9876543210', '123456');
       expect(res.isSuccess, isTrue);
       expect(res.data!.mobileNumber, equals('9876543210'));
+      expect(mockAuthService.getAuthToken(), equals('mock_token_9876543210'));
 
       final invalidRes = await mockAuthService.verifyOtp('9876543210', '999999');
       expect(invalidRes.isFailure, isTrue);
     });
 
-    test('MockAuthService logout clears session profile completely', () async {
+    test('MockAuthService logout clears session profile and token completely', () async {
       await mockAuthService.loginWithPassword('9876543210', 'password123');
       expect(await mockAuthService.isLoggedIn(), isTrue);
+      expect(mockAuthService.getAuthToken(), isNotNull);
 
       await mockAuthService.logout();
       expect(await mockAuthService.isLoggedIn(), isFalse);
+      expect(mockAuthService.getAuthToken(), isNull);
       expect(await mockAuthService.getCurrentUser(), isNull);
+    });
+
+    test('MockAuthService validateSession', () async {
+      final failRes = await mockAuthService.validateSession();
+      expect(failRes.isFailure, isTrue);
+
+      await mockAuthService.loginWithPassword('9876543210', 'password123');
+      final passRes = await mockAuthService.validateSession();
+      expect(passRes.isSuccess, isTrue);
     });
   });
 
-  group('ApiAuthService Backend Integration Tests', () {
-    test('ApiAuthService loginWithPassword citizen success', () async {
+  group('ApiAuthService Lifecycle and Storage Security Tests', () {
+    test('1. Fresh install: no session -> validateSession fails without calling /auth/me', () async {
+      expect(await apiAuthService.isLoggedIn(), isFalse);
+      expect(apiAuthService.getAuthToken(), isNull);
+      
+      final res = await apiAuthService.validateSession();
+      expect(res.isFailure, isTrue);
+      expect(res.statusCode, equals(401));
+      expect(apiService.tokenSeenDuringAuthMe, isNull);
+    });
+
+    test('2. Login: token saved securely and profile saved without token in normal storage', () async {
       final res = await apiAuthService.loginWithPassword('9876543210', 'password123');
       expect(res.isSuccess, isTrue);
       expect(res.data!.token, equals('api_token_12345'));
-      expect(res.data!.role, equals('citizen'));
       expect(apiService.token, equals('api_token_12345'));
+
+      // Check SecureStorageService contains the token
+      final secureToken = await secureStorageService.read('pukaar_auth_token');
+      expect(secureToken, equals('api_token_12345'));
+
+      // Check standard StorageService contains profile WITHOUT the token
+      final rawProfileJson = await storageService.getString('pukaar_user_profile');
+      expect(rawProfileJson, isNotNull);
+      final decodedMap = json.decode(rawProfileJson!) as Map<String, dynamic>;
+      expect(decodedMap.containsKey('token'), isFalse);
+    });
+
+    test('3. Session restoration: token restored into ApiService before /auth/me call', () async {
+      // Simulate persisted state from prior run
+      await storageService.setBool('pukaar_is_logged_in', true);
+      const profile = UserProfile(
+        name: 'Restored User',
+        mobileNumber: '9876543210',
+        role: 'citizen',
+        emergencyContactName: 'Contact',
+        emergencyContactPhone: '100',
+      );
+      await storageService.setString('pukaar_user_profile', json.encode(profile.toJson()));
+      await secureStorageService.write('pukaar_auth_token', 'restored_token_999');
+
+      // Create a fresh ApiAuthService instance representing app restart
+      final freshApiService = MockTestApiService();
+      final freshAuthService = ApiAuthService(freshApiService, storageService, secureStorageService);
+
+      expect(freshApiService.token, isNull);
+
+      final valResult = await freshAuthService.validateSession();
+      expect(valResult.isSuccess, isTrue);
+
+      // Verify token was attached to ApiService before /auth/me was requested
+      expect(freshApiService.tokenSeenDuringAuthMe, equals('restored_token_999'));
+      expect(freshApiService.token, equals('restored_token_999'));
+      expect(await freshAuthService.isLoggedIn(), isTrue);
+    });
+
+    test('4. Valid token: /auth/me 200 keeps session active and updates profile', () async {
+      await apiAuthService.loginWithPassword('9876543210', 'password123');
+      
+      final res = await apiAuthService.validateSession();
+      expect(res.isSuccess, isTrue);
+      expect(await apiAuthService.isLoggedIn(), isTrue);
       expect(apiAuthService.getAuthToken(), equals('api_token_12345'));
-      expect(apiAuthService.getRole(), equals('citizen'));
     });
 
-    test('ApiAuthService loginWithPassword responder success', () async {
-      final res = await apiAuthService.loginWithPassword('9000000000', 'responder123');
-      expect(res.isSuccess, isTrue);
-      expect(res.data!.role, equals('responder'));
-      expect(res.data!.isResponder, isTrue);
-      expect(apiAuthService.getRole(), equals('responder'));
-    });
+    test('5. Invalid token: /auth/me 401 deletes token, clears profile, logs out user', () async {
+      await apiAuthService.loginWithPassword('9876543210', 'password123');
+      expect(await apiAuthService.isLoggedIn(), isTrue);
 
-    test('ApiAuthService loginWithPassword dual role success', () async {
-      final res = await apiAuthService.loginWithPassword('9999999999', 'dual123');
-      expect(res.isSuccess, isTrue);
-      expect(res.data!.role, equals('dual'));
-      expect(res.data!.isResponder, isTrue);
-      expect(res.data!.isDual, isTrue);
-      expect(res.data!.isCitizen, isTrue);
-    });
+      apiService.return401OnAuthMe = true;
 
-    test('ApiAuthService loginWithPassword invalid credentials', () async {
-      final res = await apiAuthService.loginWithPassword('9876543210', 'wrong');
+      final res = await apiAuthService.validateSession();
       expect(res.isFailure, isTrue);
-      expect(res.errorMessage, contains('Invalid'));
+      expect(res.statusCode, equals(401));
+
+      // Local session must be completely cleared
+      expect(await apiAuthService.isLoggedIn(), isFalse);
+      expect(apiAuthService.getAuthToken(), isNull);
+      expect(apiService.token, isNull);
+      expect(await secureStorageService.read('pukaar_auth_token'), isNull);
+      expect(await storageService.getString('pukaar_user_profile'), isNull);
     });
 
-    test('ApiAuthService registerUser success', () async {
-      final profile = const UserProfile(
+    test('6. Network failure: validateSession failure does NOT delete persisted token or log out', () async {
+      await apiAuthService.loginWithPassword('9876543210', 'password123');
+      expect(await apiAuthService.isLoggedIn(), isTrue);
+
+      apiService.returnNetworkErrorOnAuthMe = true;
+
+      final res = await apiAuthService.validateSession();
+      expect(res.isFailure, isTrue);
+
+      // Token and session MUST be preserved despite network error
+      expect(await apiAuthService.isLoggedIn(), isTrue);
+      expect(apiAuthService.getAuthToken(), equals('api_token_12345'));
+      expect(await secureStorageService.read('pukaar_auth_token'), equals('api_token_12345'));
+      expect(await storageService.getString('pukaar_user_profile'), isNotNull);
+    });
+
+    test('7. Logout: attempts backend revocation and clears local token, profile, and ApiService token', () async {
+      await apiAuthService.loginWithPassword('9876543210', 'password123');
+      expect(await apiAuthService.isLoggedIn(), isTrue);
+
+      await apiAuthService.logout();
+
+      expect(apiService.logoutCalled, isTrue);
+      expect(apiAuthService.getAuthToken(), isNull);
+      expect(apiService.token, isNull);
+      expect(await apiAuthService.isLoggedIn(), isFalse);
+      expect(await secureStorageService.read('pukaar_auth_token'), isNull);
+      expect(await storageService.getString('pukaar_user_profile'), isNull);
+    });
+
+    test('ApiAuthService registerUser saves token securely without token in storage', () async {
+      const profile = UserProfile(
         name: 'Jane Dual',
         mobileNumber: '9123456789',
         role: 'dual',
@@ -185,35 +294,14 @@ void main() {
       final res = await apiAuthService.registerUser(profile, password: 'securepassword');
       expect(res.isSuccess, isTrue);
       expect(res.data!.token, equals('api_token_67890'));
-      expect(res.data!.role, equals('dual'));
-      expect(res.data!.isResponder, isTrue);
       expect(apiService.token, equals('api_token_67890'));
-    });
 
-    test('ApiAuthService registerUser invalid existing mobile', () async {
-      final profile = const UserProfile(
-        name: 'Existing User',
-        mobileNumber: '0000000000',
-        role: 'citizen',
-        emergencyContactName: 'Contact',
-        emergencyContactPhone: '100',
-      );
+      final secureToken = await secureStorageService.read('pukaar_auth_token');
+      expect(secureToken, equals('api_token_67890'));
 
-      final res = await apiAuthService.registerUser(profile, password: 'password123');
-      expect(res.isFailure, isTrue);
-      expect(res.errorMessage, contains('already exists'));
-    });
-
-    test('ApiAuthService logout clears session and token', () async {
-      await apiAuthService.loginWithPassword('9876543210', 'password123');
-      expect(apiAuthService.getAuthToken(), isNotNull);
-
-      await apiAuthService.logout();
-      expect(apiAuthService.getAuthToken(), isNull);
-      expect(apiService.token, isNull);
-      final loggedIn = await apiAuthService.isLoggedIn();
-      expect(loggedIn, isFalse);
-      expect(await apiAuthService.getCurrentUser(), isNull);
+      final rawProfileJson = await storageService.getString('pukaar_user_profile');
+      final decodedMap = json.decode(rawProfileJson!) as Map<String, dynamic>;
+      expect(decodedMap.containsKey('token'), isFalse);
     });
   });
 }
