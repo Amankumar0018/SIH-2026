@@ -3,6 +3,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'core/constants/app_strings.dart';
 import 'core/routing/app_router.dart';
 import 'core/routing/app_routes.dart';
+import 'core/services/notification_service.dart';
 import 'core/services/secure_storage_service.dart';
 import 'core/services/service_locator.dart';
 import 'core/services/storage_service.dart';
@@ -30,14 +31,23 @@ class PukaarApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
-      title: AppStrings.appName,
-      debugShowCheckedModeBanner: false,
-      theme: AppTheme.lightTheme,
-      darkTheme: AppTheme.darkTheme,
-      themeMode: ThemeMode.system,
-      initialRoute: AppRoutes.splash,
-      onGenerateRoute: AppRouter.generateRoute,
+    final localizationService = ServiceLocator.instance.localizationService;
+
+    return ListenableBuilder(
+      listenable: localizationService,
+      builder: (context, _) {
+        return MaterialApp(
+          locale: Locale(localizationService.currentLanguage.code),
+          scaffoldMessengerKey: InAppNotificationService.scaffoldMessengerKey,
+          title: AppStrings.appName,
+          debugShowCheckedModeBanner: false,
+          theme: AppTheme.lightTheme,
+          darkTheme: AppTheme.darkTheme,
+          themeMode: ThemeMode.system,
+          initialRoute: AppRoutes.splash,
+          onGenerateRoute: AppRouter.generateRoute,
+        );
+      },
     );
   }
 }

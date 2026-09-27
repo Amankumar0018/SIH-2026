@@ -99,13 +99,41 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
       } else {
         setState(() {
           _canResend = true;
-          _timer?.cancel();
         });
+        timer.cancel();
       }
     });
   }
 
-  // --- Sign In Logic ---
+  void _handlePasswordLogin() async {
+    if (!_signInFormKey.currentState!.validate()) return;
+
+    setState(() {
+      _isLoading = true;
+      _errorMessage = null;
+    });
+
+    final phone = _signInMobileController.text.trim();
+    final password = _signInPasswordController.text.trim();
+
+    final result = await ServiceLocator.instance.authService.loginWithPassword(
+      phone,
+      password,
+    );
+
+    setState(() {
+      _isLoading = false;
+    });
+
+    if (result.isSuccess) {
+      if (!mounted) return;
+      _navigateHome();
+    } else {
+      setState(() {
+        _errorMessage = result.errorMessage ?? 'Sign in failed. Please verify credentials.';
+      });
+    }
+  }
 
   void _handleSendOtp() async {
     if (!_signInFormKey.currentState!.validate()) return;
@@ -115,8 +143,8 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
       _errorMessage = null;
     });
 
-    final authService = ServiceLocator.instance.authService;
-    final result = await authService.sendOtp(_signInMobileController.text.trim());
+    final phone = _signInMobileController.text.trim();
+    final result = await ServiceLocator.instance.authService.sendOtp(phone);
 
     setState(() {
       _isLoading = false;
@@ -129,7 +157,7 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
       _startResendTimer();
     } else {
       setState(() {
-        _errorMessage = result.errorMessage;
+        _errorMessage = result.errorMessage ?? 'Failed to send OTP.';
       });
     }
   }
@@ -138,7 +166,7 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
     final otp = _otpController.text.trim();
     if (otp.length != 6) {
       setState(() {
-        _errorMessage = 'OTP must be 6 digits.';
+        _errorMessage = 'Please enter a valid 6-digit OTP code.';
       });
       return;
     }
@@ -148,8 +176,8 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
       _errorMessage = null;
     });
 
-    final authService = ServiceLocator.instance.authService;
-    final result = await authService.verifyOtp(_signInMobileController.text.trim(), otp);
+    final phone = _signInMobileController.text.trim();
+    final result = await ServiceLocator.instance.authService.verifyOtp(phone, otp);
 
     setState(() {
       _isLoading = false;
@@ -157,60 +185,22 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
 
     if (result.isSuccess) {
       if (!mounted) return;
-      final profile = result.data!;
-      if (profile.name.trim().isEmpty) {
-        Navigator.pushReplacementNamed(
-          context,
-          AppRoutes.register,
-          arguments: _signInMobileController.text.trim(),
-        );
-      } else {
-        Navigator.pushReplacementNamed(context, AppRoutes.home);
-      }
+      _navigateHome();
     } else {
       setState(() {
-        _errorMessage = result.errorMessage;
+        _errorMessage = result.errorMessage ?? 'Invalid OTP code.';
       });
     }
   }
 
-  void _handlePasswordLogin() async {
-    if (!_signInFormKey.currentState!.validate()) return;
-
-    setState(() {
-      _isLoading = true;
-      _errorMessage = null;
-    });
-
-    final authService = ServiceLocator.instance.authService;
-    final result = await authService.loginWithPassword(
-      _signInMobileController.text.trim(),
-      _signInPasswordController.text.trim(),
-    );
-
-    setState(() {
-      _isLoading = false;
-    });
-
-    if (result.isSuccess) {
-      if (!mounted) return;
-      Navigator.pushReplacementNamed(context, AppRoutes.home);
-    } else {
-      setState(() {
-        _errorMessage = result.errorMessage;
-      });
-    }
+  void _quickFill(String phone, String password) {
+    _signInMobileController.text = phone;
+    _signInPasswordController.text = password;
   }
 
-  void _quickFill(String mobile, String password) {
-    setState(() {
-      _signInMobileController.text = mobile;
-      _signInPasswordController.text = password;
-      _errorMessage = null;
-    });
+  void _navigateHome() {
+    Navigator.pushReplacementNamed(context, AppRoutes.home);
   }
-
-  // --- Sign Up Logic ---
 
   void _handleSignUp() async {
     if (!_signUpFormKey.currentState!.validate()) return;
@@ -220,23 +210,25 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
       _errorMessage = null;
     });
 
-    final profile = UserProfile(
+    final user = UserProfile(
       name: _signUpNameController.text.trim(),
       mobileNumber: _signUpMobileController.text.trim(),
-      role: _selectedRole,
-      email: _signUpEmailController.text.trim().isEmpty ? null : _signUpEmailController.text.trim(),
-      age: _signUpAgeController.text.trim().isEmpty ? null : int.tryParse(_signUpAgeController.text.trim()),
       emergencyContactName: _signUpContactNameController.text.trim(),
       emergencyContactPhone: _signUpContactPhoneController.text.trim(),
-      bloodGroup: _signUpBloodGroupController.text.trim().isEmpty ? null : _signUpBloodGroupController.text.trim(),
+      email: _signUpEmailController.text.trim().isNotEmpty
+          ? _signUpEmailController.text.trim()
+          : null,
+      age: int.tryParse(_signUpAgeController.text.trim()),
+      bloodGroup: _signUpBloodGroupController.text.trim().isNotEmpty
+          ? _signUpBloodGroupController.text.trim()
+          : null,
+      role: _selectedRole,
     );
 
-    final password = _signUpPasswordController.text.trim().isEmpty
-        ? 'password123'
-        : _signUpPasswordController.text.trim();
-
-    final authService = ServiceLocator.instance.authService;
-    final result = await authService.registerUser(profile, password: password);
+    final result = await ServiceLocator.instance.authService.registerUser(
+      user,
+      password: _isBackendMode ? _signUpPasswordController.text.trim() : null,
+    );
 
     setState(() {
       _isLoading = false;
@@ -261,18 +253,28 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final l10n = ServiceLocator.instance.localizationService.localizations;
 
     return Scaffold(
       appBar: AppBar(
         title: const Text(AppStrings.appName),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.language_rounded),
+            tooltip: 'Change Language / भाषा बदलें / भाषा बदला',
+            onPressed: () {
+              Navigator.pushNamed(context, AppRoutes.languageSelection);
+            },
+          ),
+        ],
         bottom: TabBar(
           controller: _tabController,
           indicatorColor: AppColors.primary,
           labelColor: theme.colorScheme.primary,
           unselectedLabelColor: theme.colorScheme.onSurfaceVariant,
-          tabs: const [
-            Tab(text: 'Sign In', icon: Icon(Icons.login_rounded)),
-            Tab(text: 'Sign Up', icon: Icon(Icons.person_add_outlined)),
+          tabs: [
+            Tab(text: l10n.signIn, icon: const Icon(Icons.login_rounded)),
+            Tab(text: l10n.signUp, icon: const Icon(Icons.person_add_outlined)),
           ],
         ),
       ),
@@ -316,6 +318,8 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
   }
 
   Widget _buildSignInTab(ThemeData theme) {
+    final l10n = ServiceLocator.instance.localizationService.localizations;
+
     return SingleChildScrollView(
       child: Form(
         key: _signInFormKey,
@@ -346,9 +350,9 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
                   children: [
                     TextFormField(
                       controller: _signInMobileController,
-                      decoration: const InputDecoration(
-                        labelText: 'Mobile Number',
-                        prefixIcon: Icon(Icons.phone_android_rounded),
+                      decoration: InputDecoration(
+                        labelText: l10n.mobileNumber,
+                        prefixIcon: const Icon(Icons.phone_android_rounded),
                         hintText: 'e.g. 9876543210',
                       ),
                       keyboardType: TextInputType.phone,
@@ -364,7 +368,7 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
                       controller: _signInPasswordController,
                       obscureText: _obscureSignInPassword,
                       decoration: InputDecoration(
-                        labelText: 'Password',
+                        labelText: l10n.password,
                         prefixIcon: const Icon(Icons.lock_outline_rounded),
                         suffixIcon: IconButton(
                           icon: Icon(_obscureSignInPassword
@@ -384,7 +388,7 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
                     ),
                     const SizedBox(height: AppDimensions.spaceLg),
                     PrimaryButton(
-                      label: 'Sign In',
+                      label: l10n.signIn,
                       isLoading: _isLoading,
                       onPressed: _handlePasswordLogin,
                     ),
@@ -530,6 +534,8 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
   }
 
   Widget _buildSignUpTab(ThemeData theme) {
+    final l10n = ServiceLocator.instance.localizationService.localizations;
+
     return SingleChildScrollView(
       child: Form(
         key: _signUpFormKey,
@@ -555,9 +561,9 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
                 children: [
                   TextFormField(
                     controller: _signUpNameController,
-                    decoration: const InputDecoration(
-                      labelText: 'Full Name *',
-                      prefixIcon: Icon(Icons.person_outline),
+                    decoration: InputDecoration(
+                      labelText: '${l10n.fullName} *',
+                      prefixIcon: const Icon(Icons.person_outline),
                     ),
                     validator: (value) {
                       if (value == null || value.trim().isEmpty) {
@@ -569,9 +575,9 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
                   const SizedBox(height: AppDimensions.spaceMd),
                   TextFormField(
                     controller: _signUpMobileController,
-                    decoration: const InputDecoration(
-                      labelText: 'Mobile Number *',
-                      prefixIcon: Icon(Icons.phone_android_rounded),
+                    decoration: InputDecoration(
+                      labelText: '${l10n.mobileNumber} *',
+                      prefixIcon: const Icon(Icons.phone_android_rounded),
                     ),
                     keyboardType: TextInputType.phone,
                     validator: (value) {
@@ -587,7 +593,7 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
                       controller: _signUpPasswordController,
                       obscureText: _obscureSignUpPassword,
                       decoration: InputDecoration(
-                        labelText: 'Password *',
+                        labelText: '${l10n.password} *',
                         prefixIcon: const Icon(Icons.lock_outline),
                         suffixIcon: IconButton(
                           icon: Icon(_obscureSignUpPassword
@@ -644,15 +650,15 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
                   ),
                   const SizedBox(height: AppDimensions.spaceLg),
                   Text(
-                    'Primary Emergency Contact *',
+                    '${l10n.emergencyContactName} *',
                     style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold),
                   ),
                   const SizedBox(height: AppDimensions.spaceSm),
                   TextFormField(
                     controller: _signUpContactNameController,
-                    decoration: const InputDecoration(
-                      labelText: 'Contact Name *',
-                      prefixIcon: Icon(Icons.contacts_outlined),
+                    decoration: InputDecoration(
+                      labelText: '${l10n.emergencyContactName} *',
+                      prefixIcon: const Icon(Icons.contacts_outlined),
                       hintText: 'e.g. Spouse / Parent',
                     ),
                     validator: (value) {
@@ -665,9 +671,9 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
                   const SizedBox(height: AppDimensions.spaceMd),
                   TextFormField(
                     controller: _signUpContactPhoneController,
-                    decoration: const InputDecoration(
-                      labelText: 'Contact Phone *',
-                      prefixIcon: Icon(Icons.phone_outlined),
+                    decoration: InputDecoration(
+                      labelText: '${l10n.emergencyContactPhone} *',
+                      prefixIcon: const Icon(Icons.phone_outlined),
                     ),
                     keyboardType: TextInputType.phone,
                     validator: (value) {
@@ -679,7 +685,11 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
                   ),
                   const SizedBox(height: AppDimensions.spaceLg),
                   PrimaryButton(
-                    label: 'Create Account & Sign In',
+                    label: l10n.language.name == 'hindi'
+                        ? 'खाता बनाएं (रजिस्टर)'
+                        : (l10n.language.name == 'marathi'
+                            ? 'खाते तयार करा (नोंदणी)'
+                            : 'Create Account & Sign In'),
                     isLoading: _isLoading,
                     onPressed: _handleSignUp,
                   ),

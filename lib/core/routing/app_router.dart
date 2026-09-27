@@ -5,6 +5,7 @@ import '../../features/emergency/presentation/screens/emergency_intent_screen.da
 import '../../features/emergency/presentation/screens/emergency_sos_screen.dart';
 import '../../features/emergency/presentation/screens/emergency_tracking_screen.dart';
 import '../../features/home/presentation/screens/home_screen.dart';
+import '../../features/onboarding/presentation/screens/language_selection_screen.dart';
 import '../../features/onboarding/presentation/screens/onboarding_screen.dart';
 import '../../features/onboarding/presentation/screens/splash_screen.dart';
 import '../../features/profile/presentation/screens/emergency_contacts_screen.dart';
@@ -24,6 +25,13 @@ class AppRouter {
       case AppRoutes.splash:
         return MaterialPageRoute(
           builder: (_) => const SplashScreen(),
+          settings: settings,
+        );
+
+      case AppRoutes.languageSelection:
+        final isSettings = settings.arguments as bool? ?? false;
+        return MaterialPageRoute(
+          builder: (_) => LanguageSelectionScreen(isSettings: isSettings),
           settings: settings,
         );
 

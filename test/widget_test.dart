@@ -56,7 +56,7 @@ class MockWidgetTestApiService implements ApiService {
 }
 
 void main() {
-  testWidgets('Pukaar App first launch goes to Onboarding', (WidgetTester tester) async {
+  testWidgets('Pukaar App first launch goes to Language Selection then Onboarding', (WidgetTester tester) async {
     ServiceLocator.instance.init(
       customLocationService: MockLocationService(),
     );
@@ -66,6 +66,13 @@ void main() {
 
     await tester.pumpAndSettle(const Duration(seconds: 2));
 
+    // First launch displays language selection
+    expect(find.text('Choose your language\nभाषा चुनें • भाषा निवडा'), findsOneWidget);
+
+    // Tap Continue to proceed to Onboarding
+    await tester.tap(find.text('Continue'));
+    await tester.pumpAndSettle();
+
     expect(find.text('Welcome to Pukaar'), findsOneWidget);
     expect(find.text('One platform for emergency help.'), findsOneWidget);
   });
@@ -74,6 +81,7 @@ void main() {
     final storage = InMemoryStorageService();
     final secureStorage = InMemorySecureStorageService();
     await storage.setBool('pukaar_onboarding_completed', true);
+    await storage.setBool('pukaar_has_selected_language', true);
 
     ServiceLocator.instance.init(
       customStorageService: storage,
@@ -97,6 +105,7 @@ void main() {
 
     await storage.setBool('pukaar_onboarding_completed', true);
     await storage.setBool('pukaar_is_logged_in', true);
+    await storage.setBool('pukaar_has_selected_language', true);
     await storage.setString('pukaar_user_profile', '{"name":"Citizen","mobileNumber":"9876543210","role":"citizen"}');
     await secureStorage.write('pukaar_auth_token', 'valid_token_123');
 
@@ -123,6 +132,7 @@ void main() {
 
     await storage.setBool('pukaar_onboarding_completed', true);
     await storage.setBool('pukaar_is_logged_in', true);
+    await storage.setBool('pukaar_has_selected_language', true);
     await storage.setString('pukaar_user_profile', '{"name":"Citizen","mobileNumber":"9876543210","role":"citizen"}');
     await secureStorage.write('pukaar_auth_token', 'expired_token_123');
 

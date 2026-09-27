@@ -8,7 +8,9 @@ import '../../../../core/models/user_profile.dart';
 import '../../../../core/routing/app_routes.dart';
 import '../../../../core/services/service_locator.dart';
 import '../../../../shared/widgets/app_card.dart';
+import '../../../../shared/widgets/primary_button.dart';
 import '../../../../shared/widgets/section_header.dart';
+import '../../../emergency/presentation/widgets/voice_emergency_input_card.dart';
 
 /// Central Home Dashboard for Pukaar emergency platform.
 class HomeScreen extends StatefulWidget {
@@ -24,6 +26,11 @@ class _HomeScreenState extends State<HomeScreen> {
   Timer? _sosTimer;
   bool _isSosActive = false;
   String? _activeSosIncidentId;
+
+  // Voice Input State
+  final TextEditingController _voiceNotesController = TextEditingController();
+  EmergencyCategory _selectedVoiceCategory = EmergencyCategory.medical;
+  bool _isSubmittingVoiceEmergency = false;
 
   // Location details
   String _locationStatus = 'Checking GPS...';
@@ -42,6 +49,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
   @override
   void dispose() {
+    _voiceNotesController.dispose();
     _sosTimer?.cancel();
     super.dispose();
   }
@@ -99,11 +107,13 @@ class _HomeScreenState extends State<HomeScreen> {
         _sosTimer?.cancel();
 
         // Dispatch immediate SOS alert via Emergency Engine Foundation
+        final voiceNotes = _voiceNotesController.text.trim();
         ServiceLocator.instance.emergencyService
             .createIncident(
               category: EmergencyCategory.womenSafety,
               intent: 'Immediate SOS Panic Trigger',
               priority: EmergencyPriority.critical,
+              notes: voiceNotes.isNotEmpty ? voiceNotes : null,
             )
             .then((result) {
               if (result.isSuccess && result.data != null) {
@@ -112,6 +122,44 @@ class _HomeScreenState extends State<HomeScreen> {
             });
       }
     });
+  }
+
+  void _submitVoiceEmergency() async {
+    final notes = _voiceNotesController.text.trim();
+    if (notes.isEmpty || _isSubmittingVoiceEmergency) return;
+
+    setState(() {
+      _isSubmittingVoiceEmergency = true;
+    });
+
+    final result = await ServiceLocator.instance.emergencyService.createIncident(
+      category: _selectedVoiceCategory,
+      intent: 'Voice Emergency Report',
+      priority: EmergencyPriority.critical,
+      notes: notes,
+    );
+
+    if (mounted) {
+      setState(() {
+        _isSubmittingVoiceEmergency = false;
+      });
+    }
+
+    if (result.isSuccess && result.data != null && mounted) {
+      _voiceNotesController.clear();
+      Navigator.pushNamed(
+        context,
+        AppRoutes.emergencyTracking,
+        arguments: result.data!,
+      );
+    } else if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(result.errorMessage ?? 'Failed to broadcast voice emergency.'),
+          backgroundColor: AppColors.error,
+        ),
+      );
+    }
   }
 
   void _cancelSos() {
@@ -140,6 +188,7 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final l10n = ServiceLocator.instance.localizationService.l10n;
     final showResponderAccess = _currentUser == null || _currentUser!.isResponder;
 
     return Scaffold(
@@ -183,6 +232,17 @@ class _HomeScreenState extends State<HomeScreen> {
                 });
               },
             ),
+          IconButton(
+            icon: const Icon(Icons.translate_rounded),
+            tooltip: 'Language / भाषा',
+            onPressed: () => Navigator.pushNamed(
+              context,
+              AppRoutes.languageSelection,
+              arguments: true,
+            ).then((_) {
+              if (mounted) setState(() {});
+            }),
+          ),
           IconButton(
             icon: const Icon(Icons.account_circle_outlined),
             tooltip: 'Profile',
@@ -243,14 +303,18 @@ class _HomeScreenState extends State<HomeScreen> {
               _buildLocationBanner(theme),
               const SizedBox(height: AppDimensions.spaceMd),
 
+              // Voice-to-Text Emergency Input Section
+              _buildVoiceEmergencySection(theme),
+              const SizedBox(height: AppDimensions.spaceMd),
+
               // SOS Trigger Area
               _buildSosWidget(theme),
               const SizedBox(height: AppDimensions.spaceLg),
 
               // Emergency Pillars
-              const SectionHeader(
-                title: 'Select Emergency Category',
-                subtitle: 'Directly open specific triage incident routing',
+              SectionHeader(
+                title: l10n.selectEmergencyCategory,
+                subtitle: l10n.selectEmergencyCategorySubtitle,
               ),
               const SizedBox(height: AppDimensions.spaceSm),
               _buildCategoryGrid(context),
@@ -292,7 +356,7 @@ class _HomeScreenState extends State<HomeScreen> {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          const Icon(Icons.favorite_rounded, color: AppColors.primary),
+                          const Icon(Icons.medical_information_rounded, color: AppColors.medicalEmergency),
                           const SizedBox(height: AppDimensions.spaceSm),
                           Text(
                             AppStrings.medicalId,
@@ -300,7 +364,7 @@ class _HomeScreenState extends State<HomeScreen> {
                           ),
                           const SizedBox(height: AppDimensions.space2xs),
                           Text(
-                            'Blood group & allergies',
+                            'Blood, allergies, conditions',
                             style: theme.textTheme.bodyMedium?.copyWith(fontSize: 12),
                           ),
                         ],
@@ -317,6 +381,7 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Widget _buildLocationBanner(ThemeData theme) {
+    final l10n = ServiceLocator.instance.localizationService.l10n;
     return AppCard(
       backgroundColor: _locationEnabled
           ? AppColors.success.withValues(alpha: 0.08)
@@ -340,7 +405,7 @@ class _HomeScreenState extends State<HomeScreen> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  _locationStatus,
+                  _locationEnabled ? l10n.gpsActive : _locationStatus,
                   style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
                 ),
                 if (_coordinates != null)
@@ -362,7 +427,103 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
+  Widget _buildVoiceEmergencySection(ThemeData theme) {
+    final hasNotes = _voiceNotesController.text.trim().isNotEmpty;
+    final l10n = ServiceLocator.instance.localizationService.l10n;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        VoiceEmergencyInputCard(
+          controller: _voiceNotesController,
+          onChanged: (text) {
+            setState(() {
+              final lower = text.toLowerCase();
+              if (lower.contains('fire') || lower.contains('flood') || lower.contains('disaster') || lower.contains('earthquake')) {
+                _selectedVoiceCategory = EmergencyCategory.disaster;
+              } else if (lower.contains('campus') || lower.contains('ragging') || lower.contains('security')) {
+                _selectedVoiceCategory = EmergencyCategory.campus;
+              } else if (lower.contains('stalk') || lower.contains('harass') || lower.contains('safe') || lower.contains('follow')) {
+                _selectedVoiceCategory = EmergencyCategory.womenSafety;
+              } else if (lower.contains('unconscious') || lower.contains('bleeding') || lower.contains('injury') || lower.contains('ambulance') || lower.contains('heart') || lower.contains('pain')) {
+                _selectedVoiceCategory = EmergencyCategory.medical;
+              }
+            });
+          },
+        ),
+        if (hasNotes) ...[
+          const SizedBox(height: AppDimensions.spaceSm),
+          AppCard(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Row(
+                  children: [
+                    const Icon(Icons.category_outlined, size: 16, color: AppColors.primary),
+                    const SizedBox(width: 6),
+                    Text(
+                      '${l10n.triageCategory}:',
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        fontWeight: FontWeight.bold,
+                        color: theme.colorScheme.onSurface.withValues(alpha: 0.8),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 6),
+                Wrap(
+                  spacing: 6,
+                  runSpacing: 4,
+                  children: [
+                    _buildCategoryChoiceChip(l10n.medicalEmergency, EmergencyCategory.medical, AppColors.medicalEmergency),
+                    _buildCategoryChoiceChip(l10n.womenSafety, EmergencyCategory.womenSafety, AppColors.womenSafety),
+                    _buildCategoryChoiceChip(l10n.disasterManagement, EmergencyCategory.disaster, AppColors.disasterManagement),
+                    _buildCategoryChoiceChip(l10n.campusEmergency, EmergencyCategory.campus, AppColors.campusEmergency),
+                  ],
+                ),
+                const SizedBox(height: 10),
+                PrimaryButton(
+                  label: _isSubmittingVoiceEmergency ? '...' : l10n.broadcastWithVoiceNotes,
+                  backgroundColor: AppColors.primary,
+                  onPressed: _isSubmittingVoiceEmergency ? null : _submitVoiceEmergency,
+                ),
+              ],
+            ),
+          ),
+        ],
+      ],
+    );
+  }
+
+  Widget _buildCategoryChoiceChip(String label, EmergencyCategory category, Color color) {
+    final isSelected = _selectedVoiceCategory == category;
+    return ChoiceChip(
+      label: Text(label),
+      selected: isSelected,
+      onSelected: (selected) {
+        if (selected) {
+          setState(() {
+            _selectedVoiceCategory = category;
+          });
+        }
+      },
+      selectedColor: color.withValues(alpha: 0.2),
+      backgroundColor: Colors.transparent,
+      labelStyle: TextStyle(
+        fontSize: 12,
+        fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+        color: isSelected ? color : null,
+      ),
+      side: BorderSide(
+        color: isSelected ? color : Colors.grey.withValues(alpha: 0.3),
+      ),
+    );
+  }
+
   Widget _buildSosWidget(ThemeData theme) {
+    final l10n = ServiceLocator.instance.localizationService.l10n;
+
     if (_sosCountdown > 0) {
       return Container(
         padding: AppDimensions.paddingLg,
@@ -372,9 +533,9 @@ class _HomeScreenState extends State<HomeScreen> {
         ),
         child: Column(
           children: [
-            const Text(
-              'BROADCASTING IN...',
-              style: TextStyle(
+            Text(
+              l10n.broadcastingIn,
+              style: const TextStyle(
                 color: AppColors.white,
                 fontWeight: FontWeight.bold,
                 letterSpacing: 1.5,
@@ -397,9 +558,9 @@ class _HomeScreenState extends State<HomeScreen> {
                 minimumSize: const Size.fromHeight(50),
               ),
               onPressed: _cancelSos,
-              child: const Text(
-                'CANCEL DISPATCH',
-                style: TextStyle(fontWeight: FontWeight.w900),
+              child: Text(
+                l10n.cancelDispatch,
+                style: const TextStyle(fontWeight: FontWeight.w900),
               ),
             ),
           ],
@@ -435,9 +596,9 @@ class _HomeScreenState extends State<HomeScreen> {
                   ),
                 ),
                 const SizedBox(width: AppDimensions.spaceSm),
-                const Text(
-                  'SOS BROADCAST ACTIVE',
-                  style: TextStyle(
+                Text(
+                  l10n.sosBroadcastActive,
+                  style: const TextStyle(
                     color: AppColors.white,
                     fontWeight: FontWeight.bold,
                     letterSpacing: 1.5,
@@ -446,9 +607,9 @@ class _HomeScreenState extends State<HomeScreen> {
               ],
             ),
             const SizedBox(height: AppDimensions.spaceSm),
-            const Text(
-              'Your location is being updated live.',
-              style: TextStyle(color: Colors.white70, fontSize: 13),
+            Text(
+              l10n.liveLocationTracking,
+              style: const TextStyle(color: Colors.white70, fontSize: 13),
               textAlign: TextAlign.center,
             ),
             const SizedBox(height: AppDimensions.spaceLg),
@@ -459,9 +620,9 @@ class _HomeScreenState extends State<HomeScreen> {
                 minimumSize: const Size.fromHeight(50),
               ),
               onPressed: _cancelSos,
-              child: const Text(
-                'DEACTIVATE SOS ALERT',
-                style: TextStyle(fontWeight: FontWeight.w900),
+              child: Text(
+                l10n.deactivateSos,
+                style: const TextStyle(fontWeight: FontWeight.w900),
               ),
             ),
           ],
@@ -476,60 +637,59 @@ class _HomeScreenState extends State<HomeScreen> {
         borderRadius: AppDimensions.borderRadiusLg,
         boxShadow: [
           BoxShadow(
-            color: AppColors.secondary.withValues(alpha: 0.25),
-            blurRadius: 12,
-            offset: const Offset(0, 4),
+            color: AppColors.overlayDark,
+            blurRadius: 20,
+            offset: const Offset(0, 8),
           ),
         ],
       ),
       child: Column(
         children: [
-          const Text(
-            'IMMEDIATE EMERGENCY BROADCAST',
-            style: TextStyle(
+          Text(
+            l10n.immediateEmergencyBroadcast,
+            style: const TextStyle(
               color: Colors.white70,
-              fontWeight: FontWeight.w700,
+              fontWeight: FontWeight.bold,
+              letterSpacing: 1.5,
               fontSize: 12,
-              letterSpacing: 1.2,
             ),
           ),
-          const SizedBox(height: AppDimensions.spaceMd),
+          const SizedBox(height: AppDimensions.spaceLg),
           GestureDetector(
-            onTap: _triggerSosCountdown,
+            onTapDown: (_) => _triggerSosCountdown(),
+            onTapUp: (_) => _cancelSos(),
+            onTapCancel: () => _cancelSos(),
             child: Container(
-              width: AppDimensions.sosButtonSize,
-              height: AppDimensions.sosButtonSize,
+              width: 140,
+              height: 140,
               decoration: BoxDecoration(
                 color: AppColors.primary,
                 shape: BoxShape.circle,
                 boxShadow: [
                   BoxShadow(
-                    color: AppColors.primary.withValues(alpha: 0.4),
-                    blurRadius: 16,
-                    spreadRadius: 4,
+                    color: AppColors.primary.withValues(alpha: 0.6),
+                    blurRadius: 30,
+                    spreadRadius: 5,
                   ),
                 ],
               ),
-              child: const Center(
+              child: Center(
                 child: Text(
-                  'SOS',
-                  style: TextStyle(
+                  l10n.triggerSos,
+                  style: const TextStyle(
                     color: AppColors.white,
                     fontSize: 28,
                     fontWeight: FontWeight.w900,
-                    letterSpacing: 1,
+                    letterSpacing: 2,
                   ),
                 ),
               ),
             ),
           ),
-          const SizedBox(height: AppDimensions.spaceMd),
-          const Text(
-            'Tap and hold/press SOS to notify all local emergency rescue teams immediately.',
-            style: TextStyle(
-              color: Colors.white60,
-              fontSize: 11,
-            ),
+          const SizedBox(height: AppDimensions.spaceLg),
+          Text(
+            l10n.sosInstruction,
+            style: const TextStyle(color: Colors.white60, fontSize: 12),
             textAlign: TextAlign.center,
           ),
         ],
@@ -538,6 +698,8 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Widget _buildCategoryGrid(BuildContext context) {
+    final l10n = ServiceLocator.instance.localizationService.l10n;
+
     return Column(
       children: [
         Row(
@@ -545,7 +707,7 @@ class _HomeScreenState extends State<HomeScreen> {
             Expanded(
               child: _buildServiceCard(
                 context,
-                title: AppStrings.medicalEmergency,
+                title: l10n.medicalEmergency,
                 icon: Icons.medical_services_rounded,
                 color: AppColors.medicalEmergency,
               ),
@@ -554,7 +716,7 @@ class _HomeScreenState extends State<HomeScreen> {
             Expanded(
               child: _buildServiceCard(
                 context,
-                title: AppStrings.womenSafety,
+                title: l10n.womenSafety,
                 icon: Icons.shield_rounded,
                 color: AppColors.womenSafety,
               ),
@@ -567,7 +729,7 @@ class _HomeScreenState extends State<HomeScreen> {
             Expanded(
               child: _buildServiceCard(
                 context,
-                title: AppStrings.disasterManagement,
+                title: l10n.disasterManagement,
                 icon: Icons.warning_rounded,
                 color: AppColors.disasterManagement,
               ),
@@ -576,7 +738,7 @@ class _HomeScreenState extends State<HomeScreen> {
             Expanded(
               child: _buildServiceCard(
                 context,
-                title: AppStrings.campusEmergency,
+                title: l10n.campusEmergency,
                 icon: Icons.school_rounded,
                 color: AppColors.campusEmergency,
               ),

@@ -26,6 +26,10 @@ class _SplashScreenState extends State<SplashScreen> {
 
   void _navigateToNext() async {
     final authService = ServiceLocator.instance.authService;
+    final localizationService = ServiceLocator.instance.localizationService;
+
+    // Check if initial language selection has been performed
+    final hasSelectedLanguage = await localizationService.hasSelectedLanguage();
 
     // Fetch session details asynchronously
     final onboardingCompleted = await authService.isOnboardingCompleted();
@@ -42,7 +46,9 @@ class _SplashScreenState extends State<SplashScreen> {
 
     _timer = Timer(const Duration(milliseconds: 1500), () {
       if (mounted) {
-        if (!onboardingCompleted) {
+        if (!hasSelectedLanguage && !loggedIn) {
+          Navigator.pushReplacementNamed(context, AppRoutes.languageSelection);
+        } else if (!onboardingCompleted) {
           Navigator.pushReplacementNamed(context, AppRoutes.onboarding);
         } else if (!loggedIn) {
           Navigator.pushReplacementNamed(context, AppRoutes.login);

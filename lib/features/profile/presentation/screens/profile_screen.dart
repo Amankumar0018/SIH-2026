@@ -118,17 +118,18 @@ class _ProfileScreenState extends State<ProfileScreen> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final l10n = ServiceLocator.instance.localizationService.l10n;
 
     if (_isLoading) {
       return Scaffold(
-        appBar: AppBar(title: const Text(AppStrings.profile)),
+        appBar: AppBar(title: Text(l10n.profile)),
         body: const Center(child: CircularProgressIndicator()),
       );
     }
 
     if (_profile == null) {
       return Scaffold(
-        appBar: AppBar(title: const Text(AppStrings.profile)),
+        appBar: AppBar(title: Text(l10n.profile)),
         body: Center(
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
@@ -148,7 +149,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text(AppStrings.profile),
+        title: Text(l10n.profile),
       ),
       body: SafeArea(
         child: SingleChildScrollView(
@@ -339,10 +340,38 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     ],
                   ),
                 ),
+                const SizedBox(height: AppDimensions.spaceLg),
+
+                // Language Settings Card
+                Text(
+                  l10n.appLanguageLabel,
+                  style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold),
+                ),
+                const SizedBox(height: AppDimensions.spaceSm),
+                AppCard(
+                  padding: EdgeInsets.zero,
+                  child: ListTile(
+                    leading: const Icon(Icons.translate_rounded, color: AppColors.primary),
+                    title: Text(l10n.appLanguageLabel),
+                    subtitle: Text(
+                      '${ServiceLocator.instance.localizationService.currentLanguage.nativeName} (${ServiceLocator.instance.localizationService.currentLanguage.englishName})',
+                      style: const TextStyle(fontWeight: FontWeight.w600),
+                    ),
+                    trailing: const Icon(Icons.chevron_right),
+                    onTap: () async {
+                      await Navigator.pushNamed(
+                        context,
+                        AppRoutes.languageSelection,
+                        arguments: true,
+                      );
+                      if (mounted) setState(() {});
+                    },
+                  ),
+                ),
                 const SizedBox(height: AppDimensions.space2xl),
 
                 SecondaryButton(
-                  label: 'Sign Out',
+                  label: l10n.signOut,
                   onPressed: _handleLogout,
                 ),
                 const SizedBox(height: AppDimensions.spaceMd),
