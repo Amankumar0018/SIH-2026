@@ -25,6 +25,7 @@ class EmergencyIntentScreen extends StatefulWidget {
 class _EmergencyIntentScreenState extends State<EmergencyIntentScreen> {
   String? _selectedOption;
   final TextEditingController _descriptionController = TextEditingController();
+  bool _isSubmitting = false;
 
   @override
   void dispose() {
@@ -73,33 +74,56 @@ class _EmergencyIntentScreenState extends State<EmergencyIntentScreen> {
   }
 
   void _confirmEmergencyRequest() async {
+    if (_isSubmitting) return;
+
     final notes = _descriptionController.text.trim();
     if (_selectedOption == null && notes.isEmpty) return;
 
     final emergencyCategory = EmergencyCategory.fromString(widget.category);
     final intent = _selectedOption ?? (notes.isNotEmpty ? 'Emergency Voice Report' : 'General Emergency');
 
-    // Dispatch incident through the Emergency Engine Foundation service
-    final result = await ServiceLocator.instance.emergencyService.createIncident(
-      category: emergencyCategory,
-      intent: intent,
-      priority: EmergencyPriority.high,
-      notes: notes.isNotEmpty ? notes : null,
-    );
+    setState(() {
+      _isSubmitting = true;
+    });
 
-    if (result.isSuccess && result.data != null && mounted) {
-      Navigator.pushReplacementNamed(
-        context,
-        AppRoutes.emergencyTracking,
-        arguments: result.data!,
+    try {
+      // Dispatch incident through the Emergency Engine Foundation service
+      final result = await ServiceLocator.instance.emergencyService.createIncident(
+        category: emergencyCategory,
+        intent: intent,
+        priority: EmergencyPriority.high,
+        notes: notes.isNotEmpty ? notes : null,
       );
-    } else if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(result.errorMessage ?? 'Failed to broadcast emergency.'),
-          backgroundColor: AppColors.error,
-        ),
-      );
+
+      if (result.isSuccess && result.data != null && mounted) {
+        Navigator.pushReplacementNamed(
+          context,
+          AppRoutes.emergencyTracking,
+          arguments: result.data!,
+        );
+      } else if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(result.errorMessage ?? 'Failed to broadcast emergency.'),
+            backgroundColor: AppColors.error,
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Failed to broadcast emergency: $e'),
+            backgroundColor: AppColors.error,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isSubmitting = false;
+        });
+      }
     }
   }
 
@@ -109,7 +133,7 @@ class _EmergencyIntentScreenState extends State<EmergencyIntentScreen> {
     final color = _getCategoryColor();
     final options = _getOptions();
     final hasNotes = _descriptionController.text.trim().isNotEmpty;
-    final canSubmit = _selectedOption != null || hasNotes;
+    final canSubmit = (_selectedOption != null || hasNotes) && !_isSubmitting;
     final l10n = ServiceLocator.instance.localizationService.localizations;
     final categoryEnum = EmergencyCategory.fromString(widget.category);
 
@@ -186,11 +210,13 @@ class _EmergencyIntentScreenState extends State<EmergencyIntentScreen> {
                           child: AppCard(
                             borderColor: isSelected ? color : null,
                             backgroundColor: isSelected ? color.withValues(alpha: 0.08) : null,
-                            onTap: () {
-                              setState(() {
-                                _selectedOption = option;
-                              });
-                            },
+                            onTap: _isSubmitting
+                                ? null
+                                : () {
+                                    setState(() {
+                                      _selectedOption = option;
+                                    });
+                                  },
                             child: Row(
                               children: [
                                 Icon(
@@ -220,6 +246,7 @@ class _EmergencyIntentScreenState extends State<EmergencyIntentScreen> {
               const SizedBox(height: AppDimensions.spaceSm),
               PrimaryButton(
                 backgroundColor: color,
+                isLoading: _isSubmitting,
                 label: l10n.language == AppLanguage.hindi
                     ? 'आपातकालीन अनुरोध भेजें'
                     : (l10n.language == AppLanguage.marathi
