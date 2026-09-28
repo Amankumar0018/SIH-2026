@@ -60,7 +60,7 @@ class ServiceLocator {
     secureStorageService = customSecureStorageService ?? InMemorySecureStorageService();
     locationService = customLocationService ?? GeolocatorLocationService();
 
-    notificationService = customNotificationService ?? MockNotificationService();
+    notificationService = customNotificationService ?? InAppNotificationService();
     realtimeService = customRealtimeService ??
         (backendFlag && customApiService == null ? WebSocketRealtimeService() : MockRealtimeService());
 
@@ -68,6 +68,11 @@ class ServiceLocator {
         (backendFlag
             ? ApiAuthService(apiService, storageService, secureStorageService, realtimeService)
             : MockAuthService(storageService, secureStorageService, realtimeService));
+
+    notificationService.attach(
+      realtimeService: realtimeService,
+      authService: authService,
+    );
 
     if (customEmergencyRepository != null) {
       emergencyRepository = customEmergencyRepository;
