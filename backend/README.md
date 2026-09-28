@@ -22,6 +22,8 @@ pip install -r requirements.txt
 ```bash
 uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 ```
+The SQLite database (`pukaar.db`) and all required tables are automatically created on startup. No manual database setup is required.
+
 
 ### 4. Test Health Endpoint
 ```bash

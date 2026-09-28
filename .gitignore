@@ -4,6 +4,10 @@
 *.pyc
 *.swp
 .DS_Store
+*.db
+*.db-journal
+*.sqlite
+*.sqlite3
 .atom/
 .build/
 .buildlog/

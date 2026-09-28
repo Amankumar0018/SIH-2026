@@ -1,54 +1,139 @@
-from typing import Dict, List, Optional
-from datetime import datetime, timezone
-import time
 import hashlib
 import os
 import secrets
-from app.models import EmergencyIncidentModel, UserModel, AIIntelligenceModel
+import sqlite3
+import time
+from datetime import datetime, timezone
+from typing import Dict, List, Optional, Tuple
+
+from app.database import get_connection, init_db
+from app.models import AIIntelligenceModel, EmergencyIncidentModel, UserModel
 
 
 class IncidentStore:
-    """In-memory data store for Pukaar emergency incidents."""
+    """SQLite-backed persistent data store for Pukaar emergency incidents."""
 
     def __init__(self):
-        self._incidents: Dict[str, EmergencyIncidentModel] = {}
+        init_db()
+
+    def _row_to_incident(self, row: sqlite3.Row) -> EmergencyIncidentModel:
+        ai_intel: Optional[AIIntelligenceModel] = None
+        raw_ai = row["aiIntelligence"]
+        if raw_ai:
+            try:
+                ai_intel = AIIntelligenceModel.model_validate_json(raw_ai)
+            except Exception:
+                ai_intel = None
+
+        return EmergencyIncidentModel(
+            id=row["id"],
+            userId=row["userId"],
+            category=row["category"],
+            intent=row["intent"],
+            latitude=row["latitude"],
+            longitude=row["longitude"],
+            accuracy=row["accuracy"],
+            timestamp=row["timestamp"],
+            priority=row["priority"],
+            status=row["status"],
+            assignedResponderId=row["assignedResponderId"],
+            assignedResponderName=row["assignedResponderName"],
+            assignedResponderPhone=row["assignedResponderPhone"],
+            assignedResponderType=row["assignedResponderType"],
+            responderLatitude=row["responderLatitude"],
+            responderLongitude=row["responderLongitude"],
+            estimatedArrivalMinutes=row["estimatedArrivalMinutes"],
+            notes=row["notes"],
+            aiIntelligence=ai_intel,
+        )
 
     def clear(self):
-        self._incidents.clear()
+        with get_connection() as conn:
+            conn.execute("DELETE FROM incidents")
 
     def generate_id(self, category: str) -> str:
         while True:
             timestamp_ms = int(time.time() * 1000)
             rand_suffix = secrets.token_hex(4)
             new_id = f"INC_{timestamp_ms}_{category.upper()}_{rand_suffix}"
-            if new_id not in self._incidents:
-                return new_id
+            with get_connection() as conn:
+                cursor = conn.execute("SELECT 1 FROM incidents WHERE id = ?", (new_id,))
+                if cursor.fetchone() is None:
+                    return new_id
 
     def save(self, incident: EmergencyIncidentModel) -> EmergencyIncidentModel:
-        if incident.id in self._incidents:
-            raise ValueError(f"Incident with ID '{incident.id}' already exists.")
-        self._incidents[incident.id] = incident
+        ai_json = incident.aiIntelligence.model_dump_json() if incident.aiIntelligence else None
+        with get_connection() as conn:
+            cursor = conn.execute("SELECT 1 FROM incidents WHERE id = ?", (incident.id,))
+            if cursor.fetchone() is not None:
+                raise ValueError(f"Incident with ID '{incident.id}' already exists.")
+            try:
+                conn.execute(
+                    """
+                    INSERT INTO incidents (
+                        id, userId, category, intent, latitude, longitude, accuracy,
+                        timestamp, priority, status, assignedResponderId, assignedResponderName,
+                        assignedResponderPhone, assignedResponderType, responderLatitude,
+                        responderLongitude, estimatedArrivalMinutes, notes, aiIntelligence
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        incident.id,
+                        incident.userId,
+                        incident.category,
+                        incident.intent,
+                        incident.latitude,
+                        incident.longitude,
+                        incident.accuracy,
+                        incident.timestamp,
+                        incident.priority,
+                        incident.status,
+                        incident.assignedResponderId,
+                        incident.assignedResponderName,
+                        incident.assignedResponderPhone,
+                        incident.assignedResponderType,
+                        incident.responderLatitude,
+                        incident.responderLongitude,
+                        incident.estimatedArrivalMinutes,
+                        incident.notes,
+                        ai_json,
+                    ),
+                )
+            except sqlite3.IntegrityError:
+                raise ValueError(f"Incident with ID '{incident.id}' already exists.")
         return incident
 
     def get_by_id(self, incident_id: str) -> Optional[EmergencyIncidentModel]:
-        return self._incidents.get(incident_id)
+        with get_connection() as conn:
+            cursor = conn.execute("SELECT * FROM incidents WHERE id = ?", (incident_id,))
+            row = cursor.fetchone()
+            if not row:
+                return None
+            return self._row_to_incident(row)
 
     def get_all(self) -> List[EmergencyIncidentModel]:
-        return list(self._incidents.values())
+        with get_connection() as conn:
+            cursor = conn.execute("SELECT * FROM incidents ORDER BY timestamp DESC")
+            rows = cursor.fetchall()
+            return [self._row_to_incident(row) for row in rows]
 
     def get_active(self) -> List[EmergencyIncidentModel]:
-        return [
-            inc for inc in self._incidents.values()
-            if inc.status not in ("resolved", "cancelled")
-        ]
+        with get_connection() as conn:
+            cursor = conn.execute(
+                "SELECT * FROM incidents WHERE status NOT IN ('resolved', 'cancelled') ORDER BY timestamp DESC"
+            )
+            rows = cursor.fetchall()
+            return [self._row_to_incident(row) for row in rows]
 
     def update_status(self, incident_id: str, new_status: str) -> Optional[EmergencyIncidentModel]:
-        inc = self.get_by_id(incident_id)
-        if not inc:
-            return None
-        updated = inc.model_copy(update={"status": new_status})
-        self._incidents[incident_id] = updated
-        return updated
+        with get_connection() as conn:
+            cursor = conn.execute(
+                "UPDATE incidents SET status = ? WHERE id = ?",
+                (new_status, incident_id),
+            )
+            if cursor.rowcount == 0:
+                return None
+        return self.get_by_id(incident_id)
 
     def cancel(self, incident_id: str, reason: Optional[str] = None) -> Optional[EmergencyIncidentModel]:
         inc = self.get_by_id(incident_id)
@@ -57,9 +142,12 @@ class IncidentStore:
         notes = inc.notes
         if reason:
             notes = f"{notes}\nCancellation Reason: {reason}".strip() if notes else f"Cancellation Reason: {reason}"
-        updated = inc.model_copy(update={"status": "cancelled", "notes": notes})
-        self._incidents[incident_id] = updated
-        return updated
+        with get_connection() as conn:
+            conn.execute(
+                "UPDATE incidents SET status = 'cancelled', notes = ? WHERE id = ?",
+                (notes, incident_id),
+            )
+        return self.get_by_id(incident_id)
 
     def assign_responder(
         self,
@@ -75,19 +163,39 @@ class IncidentStore:
         inc = self.get_by_id(incident_id)
         if not inc:
             return None
-        updated = inc.model_copy(
-            update={
-                "assignedResponderId": responder_id,
-                "assignedResponderName": responder_name,
-                "assignedResponderPhone": responder_phone or inc.assignedResponderPhone,
-                "assignedResponderType": responder_type or inc.assignedResponderType,
-                "responderLatitude": responder_lat if responder_lat is not None else inc.responderLatitude,
-                "responderLongitude": responder_lng if responder_lng is not None else inc.responderLongitude,
-                "estimatedArrivalMinutes": eta_minutes if eta_minutes is not None else inc.estimatedArrivalMinutes,
-            }
-        )
-        self._incidents[incident_id] = updated
-        return updated
+        new_phone = responder_phone or inc.assignedResponderPhone
+        new_type = responder_type or inc.assignedResponderType
+        new_lat = responder_lat if responder_lat is not None else inc.responderLatitude
+        new_lng = responder_lng if responder_lng is not None else inc.responderLongitude
+        new_eta = eta_minutes if eta_minutes is not None else inc.estimatedArrivalMinutes
+
+        with get_connection() as conn:
+            cursor = conn.execute(
+                """
+                UPDATE incidents SET
+                    assignedResponderId = ?,
+                    assignedResponderName = ?,
+                    assignedResponderPhone = ?,
+                    assignedResponderType = ?,
+                    responderLatitude = ?,
+                    responderLongitude = ?,
+                    estimatedArrivalMinutes = ?
+                WHERE id = ?
+                """,
+                (
+                    responder_id,
+                    responder_name,
+                    new_phone,
+                    new_type,
+                    new_lat,
+                    new_lng,
+                    new_eta,
+                    incident_id,
+                ),
+            )
+            if cursor.rowcount == 0:
+                return None
+        return self.get_by_id(incident_id)
 
     def update_ai_intelligence(
         self,
@@ -97,78 +205,136 @@ class IncidentStore:
         inc = self.get_by_id(incident_id)
         if not inc:
             return None
-        updated = inc.model_copy(update={"aiIntelligence": ai_intelligence})
-        self._incidents[incident_id] = updated
-        return updated
+        ai_json = ai_intelligence.model_dump_json()
+        with get_connection() as conn:
+            cursor = conn.execute(
+                "UPDATE incidents SET aiIntelligence = ? WHERE id = ?",
+                (ai_json, incident_id),
+            )
+            if cursor.rowcount == 0:
+                return None
+        return self.get_by_id(incident_id)
 
 
 class UserStore:
-    """In-memory data store for Pukaar user accounts and auth tokens."""
+    """SQLite-backed persistent data store for Pukaar user accounts and auth tokens."""
 
     def __init__(self):
-        self._users_by_mobile: Dict[str, UserModel] = {}
-        self._tokens: Dict[str, str] = {}  # token -> mobile_number
+        init_db()
         self._seed_default_users()
 
-    def _hash_password(self, password: str, salt_hex: Optional[str] = None) -> tuple[str, str]:
+    def _hash_password(self, password: str, salt_hex: Optional[str] = None) -> Tuple[str, str]:
         if not salt_hex:
             salt_bytes = os.urandom(16)
             salt_hex = salt_bytes.hex()
         else:
             salt_bytes = bytes.fromhex(salt_hex)
-        hash_bytes = hashlib.pbkdf2_hmac('sha256', password.encode('utf-8'), salt_bytes, 100000)
+        hash_bytes = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt_bytes, 100000)
         return hash_bytes.hex(), salt_hex
 
+    def _row_to_user(self, row: sqlite3.Row) -> UserModel:
+        return UserModel(
+            id=row["id"],
+            mobileNumber=row["mobileNumber"],
+            passwordHash=row["passwordHash"],
+            salt=row["salt"],
+            role=row["role"],
+            name=row["name"],
+            email=row["email"],
+            emergencyContactName=row["emergencyContactName"] or "",
+            emergencyContactPhone=row["emergencyContactPhone"] or "",
+            bloodGroup=row["bloodGroup"],
+            allergies=row["allergies"],
+            medications=row["medications"],
+        )
+
     def _seed_default_users(self):
-        # Default citizen
-        c_hash, c_salt = self._hash_password("password123")
-        citizen = UserModel(
-            id="USR_CITIZEN_001",
-            mobileNumber="9876543210",
-            passwordHash=c_hash,
-            salt=c_salt,
-            role="citizen",
-            name="Demo Citizen",
-            emergencyContactName="Family Contact",
-            emergencyContactPhone="9999999999",
-        )
-        self._users_by_mobile[citizen.mobileNumber] = citizen
+        with get_connection() as conn:
+            cursor = conn.execute(
+                "SELECT mobileNumber FROM users WHERE mobileNumber IN (?, ?, ?)",
+                ("9876543210", "9000000000", "9999999999"),
+            )
+            existing = {row["mobileNumber"] for row in cursor.fetchall()}
 
-        # Default responder
-        r_hash, r_salt = self._hash_password("responder123")
-        responder = UserModel(
-            id="USR_RESPONDER_001",
-            mobileNumber="9000000000",
-            passwordHash=r_hash,
-            salt=r_salt,
-            role="responder",
-            name="Responder Unit 1",
-            emergencyContactName="Dispatch Center",
-            emergencyContactPhone="102",
-        )
-        self._users_by_mobile[responder.mobileNumber] = responder
+            # Default citizen
+            if "9876543210" not in existing:
+                c_hash, c_salt = self._hash_password("password123")
+                conn.execute(
+                    """
+                    INSERT INTO users (
+                        id, mobileNumber, passwordHash, salt, role, name,
+                        emergencyContactName, emergencyContactPhone
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        "USR_CITIZEN_001",
+                        "9876543210",
+                        c_hash,
+                        c_salt,
+                        "citizen",
+                        "Demo Citizen",
+                        "Family Contact",
+                        "9999999999",
+                    ),
+                )
 
-        # Default dual user (Citizen + Responder capabilities)
-        d_hash, d_salt = self._hash_password("dual123")
-        dual_user = UserModel(
-            id="USR_DUAL_001",
-            mobileNumber="9999999999",
-            passwordHash=d_hash,
-            salt=d_salt,
-            role="dual",
-            name="Demo Dual User",
-            emergencyContactName="Dispatch & Family",
-            emergencyContactPhone="112",
-        )
-        self._users_by_mobile[dual_user.mobileNumber] = dual_user
+            # Default responder
+            if "9000000000" not in existing:
+                r_hash, r_salt = self._hash_password("responder123")
+                conn.execute(
+                    """
+                    INSERT INTO users (
+                        id, mobileNumber, passwordHash, salt, role, name,
+                        emergencyContactName, emergencyContactPhone
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        "USR_RESPONDER_001",
+                        "9000000000",
+                        r_hash,
+                        r_salt,
+                        "responder",
+                        "Responder Unit 1",
+                        "Dispatch Center",
+                        "102",
+                    ),
+                )
+
+            # Default dual user (Citizen + Responder capabilities)
+            if "9999999999" not in existing:
+                d_hash, d_salt = self._hash_password("dual123")
+                conn.execute(
+                    """
+                    INSERT INTO users (
+                        id, mobileNumber, passwordHash, salt, role, name,
+                        emergencyContactName, emergencyContactPhone
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        "USR_DUAL_001",
+                        "9999999999",
+                        d_hash,
+                        d_salt,
+                        "dual",
+                        "Demo Dual User",
+                        "Dispatch & Family",
+                        "112",
+                    ),
+                )
 
     def clear(self):
-        self._users_by_mobile.clear()
-        self._tokens.clear()
+        with get_connection() as conn:
+            conn.execute("DELETE FROM tokens")
+            conn.execute("DELETE FROM users")
         self._seed_default_users()
 
     def get_by_mobile(self, mobile: str) -> Optional[UserModel]:
-        return self._users_by_mobile.get(mobile)
+        with get_connection() as conn:
+            cursor = conn.execute("SELECT * FROM users WHERE mobileNumber = ?", (mobile,))
+            row = cursor.fetchone()
+            if not row:
+                return None
+            return self._row_to_user(row)
 
     def create_user(
         self,
@@ -199,7 +365,30 @@ class UserStore:
             allergies=allergies,
             medications=medications,
         )
-        self._users_by_mobile[mobile] = user
+        with get_connection() as conn:
+            conn.execute(
+                """
+                INSERT INTO users (
+                    id, mobileNumber, passwordHash, salt, role, name,
+                    email, emergencyContactName, emergencyContactPhone,
+                    bloodGroup, allergies, medications
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    user.id,
+                    user.mobileNumber,
+                    user.passwordHash,
+                    user.salt,
+                    user.role,
+                    user.name,
+                    user.email,
+                    user.emergencyContactName,
+                    user.emergencyContactPhone,
+                    user.bloodGroup,
+                    user.allergies,
+                    user.medications,
+                ),
+            )
         return user
 
     def verify_credentials(self, mobile: str, password: str) -> Optional[UserModel]:
@@ -213,19 +402,34 @@ class UserStore:
 
     def create_token(self, mobile: str) -> str:
         token = f"pukaar_token_{secrets.token_urlsafe(32)}"
-        self._tokens[token] = mobile
+        now_iso = datetime.now(timezone.utc).isoformat()
+        with get_connection() as conn:
+            conn.execute(
+                "INSERT INTO tokens (token, mobileNumber, createdAt) VALUES (?, ?, ?)",
+                (token, mobile, now_iso),
+            )
         return token
 
     def get_user_by_token(self, token: str) -> Optional[UserModel]:
-        mobile = self._tokens.get(token)
-        if not mobile:
-            return None
-        return self.get_by_mobile(mobile)
+        with get_connection() as conn:
+            cursor = conn.execute(
+                """
+                SELECT u.* FROM users u
+                JOIN tokens t ON u.mobileNumber = t.mobileNumber
+                WHERE t.token = ?
+                """,
+                (token,),
+            )
+            row = cursor.fetchone()
+            if not row:
+                return None
+            return self._row_to_user(row)
 
     def revoke_token(self, token: str):
-        self._tokens.pop(token, None)
+        with get_connection() as conn:
+            conn.execute("DELETE FROM tokens WHERE token = ?", (token,))
 
 
-# Global singleton instances for local dev backend
+# Global singleton instances for backend
 store = IncidentStore()
 user_store = UserStore()
