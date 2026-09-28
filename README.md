@@ -83,8 +83,11 @@ flutter analyze
 # Run Flutter test suite (49 passing tests)
 flutter test
 
-# Launch mobile application on Android Emulator
-flutter run -d emulator-5554
+# Launch mobile application on Android Emulator (defaults to http://10.0.2.2:8000)
+flutter run
+
+# Launch on Physical Android Device pointing to your host machine's LAN IP
+flutter run --dart-define=API_BASE_URL=http://192.168.x.x:8000
 ```
 
 ---

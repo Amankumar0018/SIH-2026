@@ -19,7 +19,12 @@ class AppConfig {
   static const String localHostBaseUrl = 'http://localhost:8000';
 
   /// Active Base URL for Pukaar backend API services.
-  static String baseUrl = localAndroidBaseUrl;
+  /// Configurable at compile time via `--dart-define=API_BASE_URL=http://<IP>:<PORT>`.
+  /// Defaults to [localAndroidBaseUrl] for Android emulator loopback.
+  static String baseUrl = const String.fromEnvironment(
+    'API_BASE_URL',
+    defaultValue: localAndroidBaseUrl,
+  );
 
   /// Timeout duration for API network requests.
   static Duration apiTimeout = const Duration(seconds: 10);

@@ -31,10 +31,21 @@ curl http://localhost:8000/health
 
 ### 5. Flutter Integration & Local Base URL
 - **Local machine / Web / Desktop**: `http://localhost:8000`
-- **Android Emulator**: `http://10.0.2.2:8000` (Loopback address for host machine)
+- **Android Emulator**: `http://10.0.2.2:8000` (Default loopback address)
+- **Physical Android Device (LAN)**: `http://192.168.x.x:8000` (Specify your machine's LAN IP)
 
-To connect the Flutter app to this backend service, update `ServiceLocator`:
+To connect the Flutter app on a physical device:
+```bash
+flutter run --dart-define=API_BASE_URL=http://192.168.x.x:8000
+```
+Or for Android emulator:
+```bash
+flutter run
+```
+
+To enable backend API mode, update `ServiceLocator`:
 ```dart
 ServiceLocator.instance.init(useBackendApi: true);
 ```
 Or set `AppConfig.useBackendApi = true` in `lib/core/config/app_config.dart`.
+
