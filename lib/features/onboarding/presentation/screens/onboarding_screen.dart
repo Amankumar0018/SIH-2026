@@ -144,10 +144,11 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
     return Column(
       mainAxisAlignment: MainAxisAlignment.center,
       children: [
-        const Icon(
-          Icons.shield_outlined,
-          size: 100,
-          color: AppColors.primary,
+        Image.asset(
+          'assets/branding/pukaar_logo_transparent.png',
+          width: 100,
+          height: 100,
+          fit: BoxFit.contain,
         ),
         const SizedBox(height: AppDimensions.spaceLg),
         Text(

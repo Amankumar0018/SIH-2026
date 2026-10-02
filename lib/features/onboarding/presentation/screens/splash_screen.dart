@@ -89,10 +89,12 @@ class _SplashScreenState extends State<SplashScreen> {
                     ),
                   ],
                 ),
-                child: const Icon(
-                  Icons.shield_outlined,
-                  size: 54,
-                  color: AppColors.primary,
+                child: Padding(
+                  padding: const EdgeInsets.all(14),
+                  child: Image.asset(
+                    'assets/branding/pukaar_logo_transparent.png',
+                    fit: BoxFit.contain,
+                  ),
                 ),
               ),
               const SizedBox(height: AppDimensions.spaceLg),

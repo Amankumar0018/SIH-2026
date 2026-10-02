@@ -196,7 +196,12 @@ class _HomeScreenState extends State<HomeScreen> {
         title: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Icon(Icons.shield_rounded, color: AppColors.primary),
+            Image.asset(
+              'assets/branding/pukaar_logo_transparent.png',
+              width: 28,
+              height: 28,
+              fit: BoxFit.contain,
+            ),
             const SizedBox(width: AppDimensions.spaceSm),
             Text(
               AppStrings.appName,
