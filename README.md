@@ -28,6 +28,46 @@
 
 ---
 
+## 📸 Screenshots
+
+### Citizen Experience
+
+#### Citizen Dashboard
+![Citizen Dashboard](screenshots/01_citizen_dashboard.png)
+*Unified emergency dashboard with high-accuracy GPS telemetry and rapid SOS broadcast.*
+
+#### Emergency / SOS
+![Emergency / SOS](screenshots/02_emergency_sos.png)
+*Pillar-based intent triage and emergency category selection with one-tap dispatch confirmation.*
+
+#### Voice Input
+![Voice Input](screenshots/03_voice_input.png)
+*AI-driven voice emergency input with live speech transcription and ready-state verification.*
+
+#### Active Incident
+![Active Incident](screenshots/04_active_incident.png)
+*Citizen real-time emergency tracking featuring OpenStreetMap telemetry and milestone timeline.*
+
+### Responder & Incident Handling
+
+#### Responder Dashboard
+![Responder Dashboard](screenshots/05_responder_dashboard.png)
+*Operational responder feed displaying incoming dispatches, incident priorities, and geographic pins.*
+
+#### Incident Intelligence
+![Incident Intelligence](screenshots/06_incident_intelligence.png)
+*Rule-based AI triage assessment providing severity scoring, identified hazards, and clinical responder guidance.*
+
+#### Live Status
+![Live Status](screenshots/07_live_status.png)
+*Real-time coordination view reflecting responder assignment, vehicle telemetry, ETA, and in-progress rescue state.*
+
+#### Incident History
+![Incident History](screenshots/08_incident_history.png)
+*Completed incident lifecycle record displaying verified milestone completion and post-resolution summary.*
+
+---
+
 ## 📂 Architecture & Project Structure
 
 ```
@@ -132,8 +172,8 @@ void main() {
 
 ## 🧪 Testing Summary
 
-- **Flutter Unit & Widget Tests**: `49 / 49 Passed` (`flutter test`)
-- **FastAPI Pytest Backend Suite**: `11 / 11 Passed` (`python -m pytest backend/tests`)
+- **Flutter Unit & Widget Tests**: `119 / 119 Passed` (`flutter test`)
+- **FastAPI Pytest Backend Suite**: `65 / 65 Passed` (`python -m pytest backend/tests`)
 - **Flutter Code Analysis**: `0 Issues / Clean` (`flutter analyze`)
 
 ---
