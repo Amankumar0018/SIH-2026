@@ -1,10 +1,21 @@
+# Environments and secrets
+.env
+.env.*
+
+# Python & testing cache
+__pycache__/
+.pytest_cache/
+*.pyc
+
 # Miscellaneous
 *.class
 *.log
-*.pyc
 *.swp
 .DS_Store
+
+# SQLite / Database persistence
 *.db
+*.db-*
 *.db-journal
 *.sqlite
 *.sqlite3

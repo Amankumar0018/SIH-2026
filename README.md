@@ -22,8 +22,8 @@
 - **One-Tap Status Lifecycle Management**: Responders can accept dispatches, initiate active response, and mark incidents resolved.
 - **Responder GPS Context**: Displays current responder device location alongside citizen emergency coordinates.
 
-### ⚙️ Production-Ready Backend & Architecture
-- **FastAPI REST Service**: Python 3.10+ backend with in-memory incident persistence store and CORS middleware (`/incidents`, `/incidents/active`, `/incidents/{id}/status`, `/incidents/{id}/assign-responder`, `/health`).
+### ⚙️ Backend Architecture (SIH Working Prototype)
+- **FastAPI REST Service**: Python 3.10+ backend with SQLite persistence store (WAL mode) and CORS middleware (`/incidents`, `/incidents/active`, `/incidents/{id}/status`, `/incidents/{id}/assign-responder`, `/health`).
 - **Clean Architecture & Dependency Injection**: Modular service locator (`ServiceLocator`) allowing seamless switching between `MockEmergencyService` (demo mode) and `ApiEmergencyService` (live backend API).
 
 ---
@@ -120,7 +120,7 @@ flutter pub get
 # Run static analysis
 flutter analyze
 
-# Run Flutter test suite (49 passing tests)
+# Run Flutter test suite (119 passing tests)
 flutter test
 
 # Launch mobile application on Android Emulator (defaults to http://10.0.2.2:8000)
@@ -150,7 +150,7 @@ source venv/bin/activate
 # Install backend dependencies
 pip install -r requirements.txt
 
-# Run pytest backend test suite (11 passing tests)
+# Run pytest backend test suite (65 passing tests)
 python -m pytest tests
 
 # Start local FastAPI server

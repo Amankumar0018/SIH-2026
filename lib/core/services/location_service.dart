@@ -183,9 +183,10 @@ class GeolocatorLocationService implements LocationService {
       var permission = await Geolocator.checkPermission();
       if (permission == LocationPermission.denied) {
         permission = await Geolocator.requestPermission();
-        if (permission == LocationPermission.denied) {
-          return AppResult.failure('Location permission was denied by the user.');
-        }
+      }
+
+      if (permission == LocationPermission.denied) {
+        return AppResult.failure('Location permission was denied by the user.');
       }
 
       if (permission == LocationPermission.deniedForever) {
